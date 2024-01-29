@@ -1,0 +1,4 @@
+bmtk==1.0.6
+scipy==1.10.0
+bmtool==0.0.1
+fooof==1.0.0
