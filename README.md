@@ -1,8 +1,8 @@
-# V1 L5 Model
+# M1ten_thousand
 
-Ziao Chen
+Ziao Chen, Matt Stroud, Tyler Banks, and Feng Feng
 
-A ten thousand cell network of the primary visual cortex with 4 unique cell types in layer 5A and 5B: CP, CS, FSI, and LTS. This model is modified from M1 ten thousand cell model.
+A ten thousand cell network of the primary motor cortex with 4 unique cell types in layer 5A and 5B: CP, CS, FSI, and LTS. Utilizes distance dependent connections for more realism.
 
 
 There are 3 experiments to run:

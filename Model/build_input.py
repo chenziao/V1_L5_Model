@@ -598,7 +598,7 @@ def write_seeds_file(psg_seed=PSG_SEED, net_seed=NET_SEED, stimulus=STIMULUS,
 
 
 def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
-                psg_seed=PSG_SEED, input_path=INPUT_PATH,
+                burst_fr=None, psg_seed=PSG_SEED, input_path=INPUT_PATH,
                 stimulus=STIMULUS, stim_files={}):
     if not os.path.isdir(input_path):
         os.makedirs(input_path)
@@ -632,11 +632,11 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     print("Building all input spike trains...")
     start_timer = time.perf_counter()
 
-    # Input firing rates
+    # Poisson input mean firing rates
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
-    Thal_burst_fr = 50.0  # Hz. Poisson mean firing rate for burst input
-    Thal_const_fr = 10.0  # Hz.
+    Thal_burst_fr = 50.0 if burst_fr is None else burst_fr  # Hz. for thalamus burst input
+    Thal_const_fr = 10.0 if burst_fr is None else burst_fr  # Hz. for thalamus constant input
 
     std_stim_params = {'n_assemblies': n_assemblies}  # standard stimulus parameters
     # Baseline input
@@ -750,14 +750,15 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
                         firing_rate=fr['mean'], times=(0, t_stop))
             else:
                 # Lognormal distributed mean firing rate
-                fr_list.append(psg_lognormal_fr(psg, effective_ids,
-                    mean=fr['mean'], stdev=fr['stdev'], times=(0, t_stop)))
+                fr_list.append([effective_ids, psg_lognormal_fr(psg, effective_ids,
+                    mean=fr['mean'], stdev=fr['stdev'], times=(0, t_stop))])
 
         SHELL_FR.to_csv(os.path.join(input_path, "Shell_FR_stats.csv"))
         if not SHELL_CONSTANT_FR:
-            fr_file = os.path.join(input_path, "Lognormal_FR.csv")
-            with open(fr_file, 'w', newline='') as f:
-                csv.writer(f, delimiter=',').writerows(fr_list)
+            fr_list = {k: np.concatenate(v) for k, v in
+                       zip(['node_id','firing_rate'], zip(*fr_list))}
+            fr_list = pd.DataFrame(fr_list).set_index('node_id')
+            fr_list.to_csv(os.path.join(input_path, "Lognormal_FR.csv"))
 
         psg.to_sonata(os.path.join(input_path, "shell.h5"))
         print("Shell cells: %.3f sec" % (time.perf_counter() - start_timer))
@@ -778,6 +779,9 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n_assemblies', type=int,
                         nargs='?', default=N_ASSEMBLIES,
                         help="Number of assemblies", metavar='# Assemblies')
+    parser.add_argument('-fr', '--burst_fr', type=float,
+                        nargs='?', default=None,
+                        help="Thalamus burst input firing rate", metavar='Firing Rate')
     parser.add_argument('-net', '--net_seed', type=int,
                         nargs='?', default=NET_SEED,
                         help="Network random seed", metavar='Network Seed')
@@ -810,6 +814,6 @@ if __name__ == '__main__':
     rng = np.random.default_rng(NET_SEED)
 
     build_input(t_stop=args.t_stop, t_start=args.t_start,
-                n_assemblies=args.n_assemblies, psg_seed=args.psg_seed,
-                input_path=args.input_path,
+                n_assemblies=args.n_assemblies, burst_fr=args.burst_fr,
+                psg_seed=args.psg_seed, input_path=args.input_path,
                 stimulus=stimulus, stim_files=stim_files)

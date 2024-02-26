@@ -7,10 +7,9 @@ import synapses
 import connectors
 from connectors import (
     spherical_dist, cylindrical_dist_z, GaussianDropoff, UniformInRange,
-    pr_2_rho, rho_2_pr, ReciprocalConnector, UnidirectionConnector,
-    OneToOneSequentialConnector, CorrelatedGapJunction,
-    syn_dist_delay_feng_section_PN, syn_section_PN,
-    syn_dist_delay_feng, syn_uniform_delay_section
+    pr_2_rho, rho_2_pr, ReciprocalConnector, NormalizedReciprocalRate,
+    UnidirectionConnector, OneToOneSequentialConnector, GapJunction,
+    syn_dist_delay_feng_section_PN, syn_dist_delay_feng
 )
 
 ##############################################################################
@@ -26,17 +25,14 @@ dt = 0.1  # ms
 
 # Network size and dimensions
 num_cells = 10000  # 10000
-column_width, column_height = 600., 500.
+column_width, column_height = 600., 250.
 x_start, x_end = - column_width / 2, column_width / 2
 y_start, y_end = - column_width / 2, column_width / 2
 z_start, z_end = - column_height / 2, column_height / 2
-z_5A = 0.  # boundary between 5A and 5B
 
 # Distance constraint for all cells
-min_conn_dist = 20.0  # um. PN soma diameter
+min_conn_dist = 15.0  # um. ~ PN soma diameter
 max_conn_dist = 300.0  # or np.inf
-# Distance range for total probability in estimation of Gaussian drop function
-# ptotal_dist_range = (0., 150.)
 
 # When enabled, a shell of virtual cells will be created around the core cells.
 edge_effects = True
@@ -52,32 +48,12 @@ def num_prop(ratio, N):
 
 
 # Number of cells in each population.
-# Following 80/20 E/I equal on CP-CS and 60% FSI to 40% LTS for Interneurons
-# Densities by cell proportion unless otherwise specified:
-# CP: 20%  CS: 20% CTH: 20% CC: 20% FSI: 12% LTS: 8%
+# Following 85/15 E/I equal on CP-CS and 57% FSI to 43% LTS for Interneurons
 # Corticopontine, Corticostriatal,
 # Fast Spiking Interneuron, Low Threshold Spiker
-num_CP, num_CS, num_FSI, num_LTS = num_prop([40, 40, 12, 8], num_cells)
-# num_CTH = int(num_cells * 0.2)  # Corticothalamic
-# num_CC = int(num_cells * 0.2)   # Corticocortical
-
-# Amount of cells per layer
-# CP cells are basically only in layer 5B and nowhere else.
-numCP_5A, numCP_5B = num_prop([5, 95], num_CP)
-# CS cells span top of 5B to middle of 2/3
-numCS_5A, numCS_5B = num_prop([95, 5], num_CS)
-# Even distribution of FSI cells between Layers 5A and 5B
-numFSI_5A, numFSI_5B = num_prop([1, 1], num_FSI)
-# Even distribution of LTS cells between Layers 5A and 5B
-numLTS_5A, numLTS_5B = num_prop([1, 1], num_LTS)
-
-# Total 400x400x1820 (ignoring layer 1)
-# Order from top to bottom is 2/3, 4, 5A, 5B, 6
-# Layer 2/3 (420 um thick) 23.1%
-# Layer 5A (250 um thick) 13.7% (z is 250 to 499)
-# Layer 5B (250 um thick) 13.7%  (z is 0 to 249)
-num_cells_5A = numCP_5A + numCS_5A + numFSI_5A + numLTS_5A
-num_cells_5B = numCP_5B + numCS_5B + numFSI_5B + numLTS_5B
+num_CP, num_CS, num_FSI, num_LTS = num_prop([42.5, 42.5, 8.5, 6.5], num_cells)
+print('Cell numbers: ' + ', '.join(f'{c:s}={n:d}' for c, n in
+    zip(['CP', 'CS', 'FSI', 'LTS'], [num_CP, num_CS, num_FSI, num_LTS])))
 
 
 # Generate random cell positions
@@ -86,49 +62,36 @@ use_poiss_disc = True
 
 # Get positions for cells in the core
 def samples_in_core(samples):
-    core_idx = (samples[:, 0] >= x_start) & (samples[:, 0] <= x_end) & \
-        (samples[:, 1] >= y_start) & (samples[:, 1] <= y_end) & \
-        (samples[:, 2] >= z_start) & (samples[:, 2] <= z_end)
-    pos_list_5 = samples[core_idx]  # layer 5 volume
-    idx_5A = pos_list_5[:, 2] >= z_5A  # index in 5A, others in 5B
-    return core_idx, pos_list_5[idx_5A], pos_list_5[~idx_5A]
+    core_idx = (samples[:, 0] >= x_start) & (samples[:, 0] <= x_end) \
+        & (samples[:, 1] >= y_start) & (samples[:, 1] <= y_end) \
+        & (samples[:, 2] >= z_start) & (samples[:, 2] <= z_end)
+    return core_idx, samples[core_idx]
 
 # Generate samples in cube with side_length
 side_length = max(column_width, column_height)
 if edge_effects:
-    side_length += 2 * max_conn_dist  # Extend by 2 * max_conn_dist
+    # Extend side length by 2 * max_conn_dist
+    side_length = max(column_width + 2 * max_conn_dist, column_height)
 
     # Compute the outer shell range. Extend the edge by max_conn_dist.
-    shell_x_start, shell_y_start, shell_z_start = \
-        np.array((x_start, y_start, z_start)) - max_conn_dist
-    shell_x_end, shell_y_end, shell_z_end = \
-        np.array((x_end, y_end, z_end)) + max_conn_dist
+    shell_x_start, shell_y_start = np.array((x_start, y_start)) - max_conn_dist
+    shell_x_end, shell_y_end = np.array((x_end, y_end)) + max_conn_dist
 
     # Compute the core and shell volume
-    core_volume_5A = (x_end - x_start) * (y_end - y_start) * (z_end - z_5A)
-    core_volume_5B = (x_end - x_start) * (y_end - y_start) * (z_5A - z_start)
-    shell_volume_5A = (shell_x_end - shell_x_start) * \
-        (shell_y_end - shell_y_start) * (shell_z_end - z_5A) - core_volume_5A
-    shell_volume_5B = (shell_x_end - shell_x_start) * \
-        (shell_y_end - shell_y_start) * (z_5A - shell_z_start) - core_volume_5B
+    core_volume = (x_end - x_start) * (y_end - y_start) * column_height
+    shell_volume = (shell_x_end - shell_x_start) * \
+        (shell_y_end - shell_y_start) * column_height - core_volume
 
     # Determine the number of shell cells with the same density
-    virt_num_cells_5A = int(round(num_cells_5A *
-                                  shell_volume_5A / core_volume_5A))
-    virt_num_cells_5B = int(round(num_cells_5B *
-                                  shell_volume_5B / core_volume_5B))
+    virt_num_cells = int(round(num_cells * shell_volume / core_volume))
+
 
     # Get positions for cells in the shell
     def samples_in_shell(samples):
-        shell_idx = (samples[:, 0] >= shell_x_start) &\
-            (samples[:, 0] <= shell_x_end) & \
-            (samples[:, 1] >= shell_y_start) & \
-            (samples[:, 1] <= shell_y_end) & \
-            (samples[:, 2] >= shell_z_start) &\
-            (samples[:, 2] <= shell_z_end)
-        pos_list_5 = samples[shell_idx]
-        idx_5A = pos_list_5[:, 2] >= z_5A  # index in 5A, others in 5B
-        return pos_list_5[idx_5A], pos_list_5[~idx_5A]
+        shell_idx = (samples[:, 0] >= shell_x_start) & (samples[:, 0] <= shell_x_end) \
+            & (samples[:, 1] >= shell_y_start) & (samples[:, 1] <= shell_y_end) \
+            & (samples[:, 2] >= z_start) & (samples[:, 2] <= z_end)
+        return samples[shell_idx]
 
 # Generate samples in cube [0, 1]^3, then scale it to side_length and center it
 def scale_cube(samples):
@@ -143,39 +106,28 @@ if use_poiss_disc:
     engine = qmc.PoissonDisk(d=3, radius=radius, ncandidates=ncand, seed=rng)
     samples = scale_cube(engine.fill_space())
 
-    core_idx, pos_list_5A, pos_list_5B = samples_in_core(samples)
-    print("Number of positions in 5A, 5B: (%d, %d)"
-          % (len(pos_list_5A), len(pos_list_5B)))
-    print("Number of cells in 5A, 5B: (%d, %d)"
-          % (num_cells_5A, num_cells_5B))
-    if len(pos_list_5A) < num_cells_5A or len(pos_list_5B) < num_cells_5B:
+    core_idx, pos_list = samples_in_core(samples)
+    print(f"Number of positions in core: {len(pos_list):d}")
+    print(f"Number of cells in core: {num_cells:d}")
+    if len(pos_list) < num_cells:
         raise ValueError("There are not enough position samples generated.")
     if edge_effects:
-        shell_pos_list_5A, shell_pos_list_5B = \
-            samples_in_shell(samples[~core_idx])
-        print("Number of positions in 5A, 5B: (%d, %d)"
-              % (len(shell_pos_list_5A), len(shell_pos_list_5B)))
-        print("Number of cells in 5A, 5B: (%d, %d)"
-              % (virt_num_cells_5A, virt_num_cells_5B))
-        if len(shell_pos_list_5A) < virt_num_cells_5A or \
-                len(shell_pos_list_5B) < virt_num_cells_5B:
-            raise ValueError("There are not enough position samples "
-                             "generated in shell.")
+        shell_pos_list = samples_in_shell(samples[~core_idx])
+        print(f"Number of positions in shell: {len(shell_pos_list):d}")
+        print(f"Number of cells in shell: {virt_num_cells:d}")
+        if len(shell_pos_list) < virt_num_cells:
+            raise ValueError("There are not enough position samples generated.")
 else:
     cell_dens = num_cells / (column_width * column_width * column_height)
     num_pos = int(cell_dens * side_length ** 3)
     samples = scale_cube(rng.random((num_pos, 3)))
     num_pos = int(0.1 * num_pos)
     while True:
-        core_idx, pos_list_5A, pos_list_5B = samples_in_core(samples)
-        add_samples = len(pos_list_5A) < num_cells_5A \
-            or len(pos_list_5B) < num_cells_5B
+        core_idx, pos_list = samples_in_core(samples)
+        add_samples = len(pos_list) < num_cells
         if edge_effects:
-            shell_pos_list_5A, shell_pos_list_5B = \
-                samples_in_shell(samples[~core_idx])
-            add_samples = add_samples \
-                or len(shell_pos_list_5A) < virt_num_cells_5A \
-                or len(shell_pos_list_5B) < virt_num_cells_5B
+            shell_pos_list = samples_in_shell(samples[~core_idx])
+            add_samples = add_samples or len(shell_pos_list) < virt_num_cells
         if add_samples:
             new_samples = scale_cube(rng.random((num_pos, 3)))
             samples = np.concatenate((samples, new_samples), axis=0)
@@ -183,48 +135,22 @@ else:
             break
 
 # Draw desired number of samples from the position list
-pos_list_5A = rng.choice(pos_list_5A, num_cells_5A, replace=False)
-pos_list_5B = rng.choice(pos_list_5B, num_cells_5B, replace=False)
+pos_list = rng.choice(pos_list, num_cells, replace=False)
 
 if edge_effects:
-    shell_pos_list_5A = rng.choice(shell_pos_list_5A,
-                                   virt_num_cells_5A, replace=False)
-    shell_pos_list_5B = rng.choice(shell_pos_list_5B,
-                                   virt_num_cells_5B, replace=False)
+    shell_pos_list = rng.choice(shell_pos_list, virt_num_cells, replace=False)
 
-    # Keep only the PN cells in the lateral shell around the core
-    def shell_PN_5A(pos_list):
-        return pos_list[pos_list[:, 2] <= z_end]
-
-    def shell_PN_5B(pos_list):
-        return pos_list[pos_list[:, 2] >= z_start]
-
-    virt_numPN_5A, virt_numITN_5A = num_prop(
-        [numCP_5A + numCS_5A, numFSI_5A + numLTS_5A], virt_num_cells_5A)
-    virt_numPN_5B, virt_numITN_5B = num_prop(
-        [numCP_5B + numCS_5B, numFSI_5B + numLTS_5B], virt_num_cells_5B)
-
-    PN_list_5A = shell_PN_5A(shell_pos_list_5A[:virt_numPN_5A])
-    ITN_list_5A = shell_pos_list_5A[virt_numPN_5A:]
-    shell_pos_list_5A = np.concatenate((PN_list_5A, ITN_list_5A))
-    PN_list_5B = shell_PN_5B(shell_pos_list_5B[:virt_numPN_5B])
-    ITN_list_5B = shell_pos_list_5B[virt_numPN_5B:]
-    shell_pos_list_5B = np.concatenate((PN_list_5B, ITN_list_5B))
-
-    virt_numCP_5A, virt_numCS_5A = num_prop(
-        [numCP_5A, numCS_5A], len(PN_list_5A))
-    virt_numFSI_5A, virt_numLTS_5A = num_prop(
-        [numFSI_5A, numLTS_5A], virt_numITN_5A)
-    virt_numCP_5B, virt_numCS_5B = num_prop(
-        [numCP_5B, numCS_5B], len(PN_list_5B))
-    virt_numFSI_5B, virt_numLTS_5B = num_prop(
-        [numFSI_5B, numLTS_5B], virt_numITN_5B)
+    virt_num_CP, virt_num_CS, virt_num_FSI, virt_num_LTS = \
+        num_prop([num_CP, num_CS, num_FSI, num_LTS], virt_num_cells)
 
 # TODO: generate random orientations
 
 
 ##############################################################################
 ####################### Functions for Building Network #######################
+
+# Dictionary to store NetworkBuilder objects referenced by name
+networks = {}
 
 def build_networks(network_definitions: list) -> dict:
     """
@@ -331,15 +257,13 @@ def save_networks(networks, network_dir):
 ##############################################################################
 ############################ Network Definitions #############################
 
-# Dictionary to store NetworkBuilder objects referenced by name
-networks = {}
 network_definitions = [
-    {   # Start Layer 5A
+    {   # Start Layer 5
         'network_name': 'cortex',
-        'positions_list': pos_list_5A,
+        'positions_list': pos_list,
         'cells': [
             {   # CP
-                'N': numCP_5A,
+                'N': num_CP,
                 'pop_name': 'CP',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -348,7 +272,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # CS
-                'N': numCS_5A,
+                'N': num_CS,
                 'pop_name': 'CS',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -357,7 +281,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # FSI
-                'N': numFSI_5A,
+                'N': num_FSI,
                 'pop_name': 'FSI',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -366,7 +290,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # LTS
-                'N': numLTS_5A,
+                'N': num_LTS,
                 'pop_name': 'LTS',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -375,49 +299,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             }
         ]
-    },  # End Layer 5A
-    {   # Start Layer 5B
-        'network_name': 'cortex',
-        'positions_list': pos_list_5B,
-        'cells': [
-            {   # CP
-                'N': numCP_5B,
-                'pop_name': 'CP',
-                'rotation_angle_zaxis': None,
-                'rotation_angle_yaxis': None,
-                'model_type': 'biophysical',
-                'model_template': 'hoc:CP_Cell',
-                'morphology': 'blank.swc'
-            },
-            {   # CS
-                'N': numCS_5B,
-                'pop_name': 'CS',
-                'rotation_angle_zaxis': None,
-                'rotation_angle_yaxis': None,
-                'model_type': 'biophysical',
-                'model_template': 'hoc:CS_Cell',
-                'morphology': 'blank.swc'
-            },
-            {   # FSI
-                'N': numFSI_5B,
-                'pop_name': 'FSI',
-                'rotation_angle_zaxis': None,
-                'rotation_angle_yaxis': None,
-                'model_type': 'biophysical',
-                'model_template': 'hoc:FSI_Cell',
-                'morphology': 'blank.swc'
-            },
-            {   # LTS
-                'N': numLTS_5B,
-                'pop_name': 'LTS',
-                'rotation_angle_zaxis': None,
-                'rotation_angle_yaxis': None,
-                'model_type': 'biophysical',
-                'model_template': 'hoc:LTS_Cell',
-                'morphology': 'blank.swc'
-            }
-        ]
-    },  # End Layer 5B
+    },  # End Layer 5
     {   # Extrinsic Thalamic Inputs
         'network_name': 'thalamus',
         'positions_list': None,
@@ -454,58 +336,32 @@ if edge_effects:
     # name the cells the same as the original network because connection rules
     # defined later will require it
     shell_network = [
-    {   # Start Layer 5A
-        'network_name': 'shell',
-        'positions_list': shell_pos_list_5A,
-        'cells': [
-            {   # CP
-                'N': virt_numCP_5A,
-                'pop_name': 'CP',
-                'model_type': 'virtual'
-            },
-            {   # CS
-                'N': virt_numCS_5A,
-                'pop_name': 'CS',
-                'model_type': 'virtual'
-            },
-            {   # FSI
-                'N': virt_numFSI_5A,
-                'pop_name': 'FSI',
-                'model_type': 'virtual'
-            },
-            {   # LTS
-                'N': virt_numLTS_5A,
-                'pop_name': 'LTS',
-                'model_type': 'virtual'
-            }
-        ]
-    },  # End Layer 5A
-    {   # Start Layer 5B
-        'network_name': 'shell',
-        'positions_list': shell_pos_list_5B,
-        'cells': [
-            {   # CP
-                'N': virt_numCP_5B,
-                'pop_name': 'CP',
-                'model_type': 'virtual'
-            },
-            {   # CS
-                'N': virt_numCS_5B,
-                'pop_name': 'CS',
-                'model_type': 'virtual'
-            },
-            {   # FSI
-                'N': virt_numFSI_5B,
-                'pop_name': 'FSI',
-                'model_type': 'virtual'
-            },
-            {   # LTS
-                'N': virt_numLTS_5B,
-                'pop_name': 'LTS',
-                'model_type': 'virtual'
-            }
-        ]
-    }  # End Layer 5B
+        {   # Start Layer 5
+            'network_name': 'shell',
+            'positions_list': shell_pos_list,
+            'cells': [
+                {   # CP
+                    'N': virt_num_CP,
+                    'pop_name': 'CP',
+                    'model_type': 'virtual'
+                },
+                {   # CS
+                    'N': virt_num_CS,
+                    'pop_name': 'CS',
+                    'model_type': 'virtual'
+                },
+                {   # FSI
+                    'N': virt_num_FSI,
+                    'pop_name': 'FSI',
+                    'model_type': 'virtual'
+                },
+                {   # LTS
+                    'N': virt_num_LTS,
+                    'pop_name': 'LTS',
+                    'model_type': 'virtual'
+                }
+            ]
+        }  # End Layer 5
     ]
 
     # Add the shell to our network definitions
@@ -541,7 +397,6 @@ networks = build_networks(network_definitions)
 #   }
 # ]
 
-
 edge_definitions = [
     {   # CP -> CP Reciprocal
         'network': 'cortex',
@@ -550,7 +405,7 @@ edge_definitions = [
             'target': {'pop_name': ['CP']}
         },
         'param': 'CP2CP',
-        'add_properties': 'syn_dist_delay_feng_section_PN'
+        'add_properties': 'syn_dist_delay_E2E'
     },
     {   # CS -> CS Reciprocal
         'network': 'cortex',
@@ -559,7 +414,7 @@ edge_definitions = [
             'target': {'pop_name': ['CS']}
         },
         'param': 'CS2CS',
-        'add_properties': 'syn_dist_delay_feng_section_PN'
+        'add_properties': 'syn_dist_delay_E2E'
     },
     {   # CP -> CS Unidirectional
         'network': 'cortex',
@@ -568,7 +423,7 @@ edge_definitions = [
             'target': {'pop_name': ['CS']}
         },
         'param': 'CP2CS',
-        'add_properties': 'syn_dist_delay_feng_section_PN'
+        'add_properties': 'syn_dist_delay_E2E'
     },
     {   # CS -> CP Unidirectional
         'network': 'cortex',
@@ -577,7 +432,7 @@ edge_definitions = [
             'target': {'pop_name': ['CP']}
         },
         'param': 'CS2CP',
-        'add_properties': 'syn_dist_delay_feng_section_PN'
+        'add_properties': 'syn_dist_delay_E2E'
     },
     {   # FSI -> FSI Reciprocal
         'network': 'cortex',
@@ -586,7 +441,7 @@ edge_definitions = [
             'target': {'pop_name': ['FSI']}
         },
         'param': 'FSI2FSI',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_FSI'
     },
     {   # LTS -> LTS Unidirectional
         'network': 'cortex',
@@ -595,7 +450,7 @@ edge_definitions = [
             'target': {'pop_name': ['LTS']}
         },
         'param': 'LTS2LTS',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_LTS'
     },
     {   # FSI -> LTS forward
         'network': 'cortex',
@@ -604,7 +459,7 @@ edge_definitions = [
             'target': {'pop_name': ['LTS']}
         },
         'param': 'FSI2LTS',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_FSI'
     },
     {   # FSI <- LTS backward
         'network': 'cortex',
@@ -613,7 +468,7 @@ edge_definitions = [
             'target': {'pop_name': ['FSI']}
         },
         'param': 'LTS2FSI',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_LTS'
     },
     {   # CP -> FSI forward
         'network': 'cortex',
@@ -622,7 +477,7 @@ edge_definitions = [
             'target': {'pop_name': ['FSI']}
         },
         'param': 'CP2FSI',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_E2I'
     },
     {   # CP <- FSI backward
         'network': 'cortex',
@@ -631,7 +486,7 @@ edge_definitions = [
             'target': {'pop_name': ['CP']}
         },
         'param': 'FSI2CP',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_FSI'
     },
     {   # CS -> FSI forward
         'network': 'cortex',
@@ -640,7 +495,7 @@ edge_definitions = [
             'target': {'pop_name': ['FSI']}
         },
         'param': 'CS2FSI',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_E2I'
     },
     {   # CS <- FSI backward
         'network': 'cortex',
@@ -649,7 +504,7 @@ edge_definitions = [
             'target': {'pop_name': ['CS']}
         },
         'param': 'FSI2CS',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_FSI'
     },
     {   # CP -> LTS forward
         'network': 'cortex',
@@ -658,7 +513,7 @@ edge_definitions = [
             'target': {'pop_name': ['LTS']}
         },
         'param': 'CP2LTS',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_E2I'
     },
     {   # CP <- LTS backward
         'network': 'cortex',
@@ -667,7 +522,7 @@ edge_definitions = [
             'target': {'pop_name': ['CP']}
         },
         'param': 'LTS2CP',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_LTS'
     },
     {   # CS -> LTS forward
         'network': 'cortex',
@@ -676,7 +531,7 @@ edge_definitions = [
             'target': {'pop_name': ['LTS']}
         },
         'param': 'CS2LTS',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_E2I'
     },
     {   # CS <- LTS backward
         'network': 'cortex',
@@ -685,7 +540,7 @@ edge_definitions = [
             'target': {'pop_name': ['CS']}
         },
         'param': 'LTS2CS',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_LTS'
     },
         ################### THALAMIC INPUT ###################
     {   # Thalamus Excitation to CP
@@ -754,18 +609,33 @@ edge_definitions = [
 # by add_properties(), since there could be potential error due to the dtype
 # being forced to be converted to float if values are not specified in the
 # corresponding column in the edge csv file.
+
+gauss_rule_sigma = dict(EE=127.00, II=126.77, EI=99.84, IE=96.60)
+def GaussianRule(pmax, conn_type='EE'):
+    params = dict(stdev=gauss_rule_sigma[conn_type], pmax=pmax,
+                  min_dist=0., max_dist=max_conn_dist)
+    return GaussianDropoff(**params)
+
+# Add decorator @np.vectorize if NormalizedReciprocalRate.decisions()
+# will be used, otherwise not needed.
+def NRR_EE(d):
+    return 5.5 if d <= 60. else (1. if d >= 180. else 5.5 - 3. / 80. * (d - 60.))
+
+def NRR_II(d):
+    return 4. - 3. / 200. * d if d <= 100. else 2.5 + (d - 100.) / 50.
+
+def NRR_EI(d):
+    return 3. if d <= 100. else 3. + (d - 100.) / 40.
+
+
 edge_params = {
     'CP2CP': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.0866, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p0': GaussianRule(.16, conn_type='EE'),
             'p0_arg': cylindrical_dist_z,
-            'pr': 0.042,
-            'estimate_rho': True,
-            'dist_range_forward': (0., 100.)
+            'pr': NormalizedReciprocalRate(NRR=NRR_EE),
+            'pr_arg': '0'  # using the same as p0_arg
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -778,14 +648,10 @@ edge_params = {
     'CS2CS': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.077, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p0': GaussianRule(.06, conn_type='EE'),
             'p0_arg': cylindrical_dist_z,
-            'pr': 0.015,
-            'estimate_rho': True,
-            'dist_range_forward': (0., 100.)
+            'pr': NormalizedReciprocalRate(NRR=NRR_EE),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -796,13 +662,14 @@ edge_params = {
         'dynamics_params': 'CS2CS.json'
     },
     'CP2CS': {
-        'connector_class': UnidirectionConnector,
+        'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p': GaussianDropoff(
-                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.01, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
-            'p_arg': cylindrical_dist_z,
+            'p0': GaussianRule(.01, conn_type='EE'),
+            'p0_arg': cylindrical_dist_z,
+            'p1': GaussianRule(.09, conn_type='EE'),
+            'symmetric_p1_arg': True,
+            'pr': NormalizedReciprocalRate(NRR=NRR_EE),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -813,14 +680,8 @@ edge_params = {
         'dynamics_params': 'CP2CS.json'
     },
     'CS2CP': {
-        'connector_class': UnidirectionConnector,
-        'connector_params': {
-            'p': GaussianDropoff(
-                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.112, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
-            'p_arg': cylindrical_dist_z,
-            },
+        'connector_class': get_connector,
+        'connector_params': {'param': 'CP2CS'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.8,
@@ -832,15 +693,10 @@ edge_params = {
     'FSI2FSI': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=126.77, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.103, ptotal_dist_range=(min_conn_dist, 200.),
-                dist_type='spherical'),
-            'p0_arg': spherical_dist,
-            'pr': 0.04,
-            'estimate_rho': True,
-            'dist_range_forward': (min_conn_dist, 100.)
-            # 'rho': pr_2_rho(0.103, 0.103, 0.04)  # use fixed rho instead
+            'p0': GaussianRule(.50, conn_type='II'),
+            'p0_arg': cylindrical_dist_z,
+            'pr': NormalizedReciprocalRate(NRR=NRR_II),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -851,13 +707,12 @@ edge_params = {
         'dynamics_params': 'FSI2FSI.json'
     },
     'LTS2LTS': {
-        'connector_class': UnidirectionConnector,
+        'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p': GaussianDropoff(
-                stdev=126.77, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.15, ptotal_dist_range=(min_conn_dist, 50.),
-                dist_type='spherical'),
-            'p_arg': spherical_dist
+            'p0': GaussianRule(.10, conn_type='II'),
+            'p0_arg': cylindrical_dist_z,
+            'pr': NormalizedReciprocalRate(NRR=NRR_II),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -870,19 +725,12 @@ edge_params = {
     'FSI2LTS': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=126.77, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.34, ptotal_dist_range=(min_conn_dist, 50.),
-                dist_type='spherical'),
-            'p0_arg': spherical_dist,
-            'p1': GaussianDropoff(
-                stdev=126.77, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.53, ptotal_dist_range=(min_conn_dist, 50.),
-                dist_type='spherical'),  # 53% unidirectional
-            'p1_arg': spherical_dist,
-            'pr': 0.22,
-            'estimate_rho': True,
-            'dist_range_forward': (min_conn_dist, 50.)
+            'p0': GaussianRule(.14, conn_type='II'),
+            'p0_arg': cylindrical_dist_z,
+            'p1': GaussianRule(.29, conn_type='II'),
+            'symmetric_p1_arg': True,
+            'pr': NormalizedReciprocalRate(NRR=NRR_II),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -906,19 +754,12 @@ edge_params = {
     'CP2FSI': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=99.84, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.32, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p0': GaussianRule(.18, conn_type='EI'),
             'p0_arg': cylindrical_dist_z,
-            'p1': GaussianDropoff(
-                stdev=96.60, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.48, ptotal_dist_range=(min_conn_dist, 100.),
-                dist_type='spherical'),
-            'p1_arg': spherical_dist,
-            'pr': 0.26,
-            'estimate_rho': True,
-            'dist_range_backward': (min_conn_dist, 100.)
+            'p1': GaussianRule(.43, conn_type='IE'),
+            'symmetric_p1_arg': True,
+            'pr': NormalizedReciprocalRate(NRR=NRR_EI),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -942,19 +783,12 @@ edge_params = {
     'CS2FSI': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=99.84, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.22, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p0': GaussianRule(.22, conn_type='EI'),
             'p0_arg': cylindrical_dist_z,
-            'p1': GaussianDropoff(
-                stdev=96.60, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.36, ptotal_dist_range=(min_conn_dist, 100.),
-                dist_type='spherical'),
-            'p1_arg': spherical_dist,
-            'pr': 0.17,
-            'estimate_rho': True,
-            'dist_range_backward': (min_conn_dist, 100.)
+            'p1': GaussianRule(.38, conn_type='IE'),
+            'symmetric_p1_arg': True,
+            'pr': NormalizedReciprocalRate(NRR=NRR_EI),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -978,19 +812,12 @@ edge_params = {
     'CP2LTS': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=99.84, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.28, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p0': GaussianRule(.23, conn_type='EI'),
             'p0_arg': cylindrical_dist_z,
-            'p1': GaussianDropoff(
-                stdev=96.60, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.39, ptotal_dist_range=(min_conn_dist, 100.),
-                dist_type='spherical'),
-            'p1_arg': spherical_dist,
-            'pr': 0.16,
-            'estimate_rho': True,
-            'dist_range_backward': (min_conn_dist, 100.)
+            'p1': GaussianRule(.52, conn_type='IE'),
+            'symmetric_p1_arg': True,
+            'pr': NormalizedReciprocalRate(NRR=NRR_EI),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -1014,19 +841,12 @@ edge_params = {
     'CS2LTS': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=99.84, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.13, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p0': GaussianRule(.26, conn_type='EI'),
             'p0_arg': cylindrical_dist_z,
-            'p1': GaussianDropoff(
-                stdev=96.60, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.086, ptotal_dist_range=(min_conn_dist, 100.),
-                dist_type='spherical'),
-            'p1_arg': spherical_dist,
-            'pr': 0.057,
-            'estimate_rho': True,
-            'dist_range_backward': (min_conn_dist, 100.)
+            'p1': GaussianRule(.13, conn_type='IE'),
+            'symmetric_p1_arg': True,
+            'pr': NormalizedReciprocalRate(NRR=NRR_EI),
+            'pr_arg': '0'
             },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
@@ -1121,29 +941,31 @@ edge_params = {
 
 # Will be called by conn.add_properties() for the associated connection
 edge_add_properties = {
-    'syn_dist_delay_feng_section_PN': {
+    'syn_dist_delay_E2E': {
         'names': ['delay', 'afferent_section_id', 'afferent_section_pos'],
         'rule': syn_dist_delay_feng_section_PN,
         'rule_params': {
-            'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6), 'min_delay': 1.0
+            'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6),
+            'min_delay': 1.6, 'delay_bound': (0.2, 2.4)
         },
         'dtypes': [float, np.uint16, float]
     },
-    'syn_section_PN': {
-        'names': ['afferent_section_id', 'afferent_section_pos'],
-        'rule': syn_section_PN,
-        'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6)},
-        'dtypes': [np.uint16, float]
-    },
-    'syn_dist_delay_feng_default': {
+    'syn_dist_delay_E2I': {
         'names': 'delay',
         'rule': syn_dist_delay_feng,
+        'rule_params': {'min_delay': 1.2},
         'dtypes': float
     },
-    'syn_uniform_delay_section': {
+    'syn_dist_delay_FSI': {
         'names': 'delay',
-        'rule': syn_uniform_delay_section,
-        'rule_params': {'low': 0.8, 'high': 1.2},
+        'rule': syn_dist_delay_feng,
+        'rule_params': {'min_delay': 0.8},
+        'dtypes': float
+    },
+    'syn_dist_delay_LTS': {
+        'names': 'delay',
+        'rule': syn_dist_delay_feng,
+        'rule_params': {'min_delay': 1.1},
         'dtypes': float
     }
 }
@@ -1223,10 +1045,6 @@ if edge_effects:
                 connector_params['verbose'] = connector.verbose
                 edge_params_val['connector_params'] = connector_params
         shell_edge_params[shell_edge['param']] = edge_params_val
-        # edge_params_val['delay'] = 0.0 # Set delay to 0
-        # add_properties = shell_edge.pop('add_properties')
-        # if add_properties == 'syn_dist_delay_feng_section_PN':
-            # shell_edge['add_properties'] = 'syn_section_PN'
 
     # Check parameters
     print("\nShell edges:")
@@ -1248,24 +1066,22 @@ if edge_effects:
 
 ##########################################################################
 ############################ GAP JUNCTIONS ###############################
-# Currently not working due to some errors in BMTK
-# FSI
-net = networks['cortex']
-population = net.nodes(pop_name='FSI')
 
+net = networks['cortex']
+
+# FSI
+g_gap = 0.00017 # microsiemens
 # gap junction probability correlated with chemical synapse
-gap_junc_FSI = CorrelatedGapJunction(
-    p_non=GaussianDropoff(
-        mean=min_conn_dist, stdev=98.0,
-        min_dist=min_conn_dist, max_dist=max_conn_dist,
-        ptotal=0.267, ptotal_dist_range=(min_conn_dist, 200.),
-        dist_type='spherical'),
-    p_uni=0.56, p_rec=1.,
-    connector=edge_params['FSI2FSI']['connector_object']
+gap_junc_FSI = GapJunction(
+    p=GaussianDropoff(
+        stdev=74.28, min_dist=0., max_dist=max_conn_dist,
+        ptotal=0.0744, ptotal_dist_range=(0., 200.), dist_type='cylindrical'
+    ),
+    p_arg=cylindrical_dist_z
 )
+population = net.nodes(pop_name='FSI')
 gap_junc_FSI.setup_nodes(source=population, target=population)
 
-g_gap = 0.000066  # microsiemens
 conn = net.add_edges(
     is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,
@@ -1273,32 +1089,27 @@ conn = net.add_edges(
 )
 
 # LTS
-net = networks['cortex']
-population = net.nodes(pop_name='LTS')
-
+g_gap = 0.00019  # microsiemens
 # gap junction probability uncorrelated with chemical synapse
-LTS_uncorr_p = GaussianDropoff(
-    mean=0., stdev=74.28,
-    min_dist=min_conn_dist, max_dist=max_conn_dist,
-    ptotal=0.85, ptotal_dist_range=(min_conn_dist, 50.),
-    dist_type='spherical'
+gap_junc_LTS = GapJunction(
+    p=GaussianDropoff(
+        stdev=74.28, min_dist=0., max_dist=max_conn_dist,
+        ptotal=0.0238, ptotal_dist_range=(0., 200.), dist_type='cylindrical'
+    ),
+    p_arg=cylindrical_dist_z
 )
-gap_junc_LTS = CorrelatedGapJunction(
-    p_non=LTS_uncorr_p, p_uni=LTS_uncorr_p, p_rec=LTS_uncorr_p,
-    connector=edge_params['LTS2LTS']['connector_object']
-)
+population = net.nodes(pop_name='LTS')
 gap_junc_LTS.setup_nodes(source=population, target=population)
 
-g_gap = 0.00076  # microsiemens
 conn = net.add_edges(
     is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,
     **gap_junc_LTS.edge_params()
 )
 
+
 ##########################################################################
 ###############################  BUILD  ##################################
-
 
 # Save the network into the appropriate network dir
 save_networks(networks, network_dir)
@@ -1310,8 +1121,8 @@ if False:
         network_dir=network_dir,
         tstop=t_sim,
         dt=dt,
-        report_vars=['v'],
-        celsius=31.0,
+        report_vars=[],
+        celsius=36.0,
         spikes_inputs=[
             ('baseline', './input/baseline.h5'),
             ('shell', './input/shell.h5')

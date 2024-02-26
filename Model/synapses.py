@@ -94,17 +94,17 @@ def set_syn_weight(syn, syn_params):
         #     TEST_COUNT2 += 1
 
 
-AMPA_NMDA_STP_params = ('tau_r_AMPA', 'tau_d_AMPA', 'Use', 'Dep', 'Fac')
+Exp2Syn_STP_params = ('e', 'tau1', 'tau2', 'Use', 'Dep', 'Fac')
 
-def AMPA_NMDA_STP(syn_params, sec_x, sec_id):
-    """Create a AMPA_NMDA_STP synapse
+def Exp2Syn_STP(syn_params, sec_x, sec_id):
+    """Create a Exp2Syn_STP synapse
     :param syn_params: parameters of a synapse
     :param sec_x: normalized distance along the section
     :param sec_id: target section
     :return: NEURON synapse object
     """
-    syn = h.AMPA_NMDA_STP(sec_x, sec=sec_id)
-    for key in AMPA_NMDA_STP_params:
+    syn = h.Exp2Syn_STP(sec_x, sec=sec_id)
+    for key in Exp2Syn_STP_params:
         value = syn_params.get(key)
         if value is not None:
             setattr(syn, key, value)
@@ -112,42 +112,14 @@ def AMPA_NMDA_STP(syn_params, sec_x, sec_id):
     return syn
 
 
-GABA_AB_STP_params = ('tau_r_GABAA', 'tau_d_GABAA', 'e_GABAA', 'Use', 'Dep', 'Fac')
-
-def GABA_AB_STP(syn_params, sec_x, sec_id):
-    """Create a GABA_AB_STP synapse
-    :param syn_params: parameters of a synapse
-    :param sec_x: normalized distance along the section
-    :param sec_id: target section
-    :return: NEURON synapse object
-    """
-    syn = h.GABA_AB_STP(sec_x, sec=sec_id)
-    for key in GABA_AB_STP_params:
-        value = syn_params.get(key)
-        if value is not None:
-            setattr(syn, key, value)
-    set_syn_weight(syn, syn_params)
-    return syn
-
-
-def ampa_nmda_stp(syn_params, xs, secs):
-    """Create a list of AMPA_NMDA_STP synapses
+def exp2syn_stp(syn_params, xs, secs):
+    """Create a list of Exp2Syn_STP synapses
     :param syn_params: parameters of a synapse
     :param xs: list of normalized distances along the section
     :param secs: target sections
     :return: list of NEURON synpase objects
     """
-    return [AMPA_NMDA_STP(syn_params, x, sec) for x, sec in zip(xs, secs)]
-
-
-def gaba_ab_stp(syn_params, xs, secs):
-    """Create a list of GABA_AB_STP synapses
-    :param syn_params: parameters of a synapse
-    :param xs: list of normalized distances along the section
-    :param secs: target sections
-    :return: list of NEURON synpase objects
-    """
-    return [GABA_AB_STP(syn_params, x, sec) for x, sec in zip(xs, secs)]
+    return [Exp2Syn_STP(syn_params, x, sec) for x, sec in zip(xs, secs)]
 
 
 def load(randseed=1111, rng_obj=None):
@@ -156,10 +128,8 @@ def load(randseed=1111, rng_obj=None):
         rng = np.random.default_rng(randseed)
     else:
         rng = rng_obj
-    add_synapse_model(AMPA_NMDA_STP, 'AMPA_NMDA_STP', overwrite=False)
-    add_synapse_model(AMPA_NMDA_STP, overwrite=False)
-    add_synapse_model(GABA_AB_STP, 'GABA_AB_STP', overwrite=False)
-    add_synapse_model(GABA_AB_STP, overwrite=False)
+    add_synapse_model(Exp2Syn_STP, 'Exp2Syn_STP', overwrite=False)
+    add_synapse_model(Exp2Syn_STP, overwrite=False)
 
 
 def syn_params_dicts(syn_dir='components/synaptic_models/synapses_STP'):
