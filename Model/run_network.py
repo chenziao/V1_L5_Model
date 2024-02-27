@@ -4,6 +4,7 @@ import warnings
 import synapses
 from bmtk.simulator import bionet
 from bmtk.simulator.bionet.pyfunction_cache import add_weight_function
+from neuron import h
 
 CONFIG = 'config.json'
 USE_CORENEURON = False
@@ -42,18 +43,21 @@ def run(config_file=CONFIG, use_coreneuron=USE_CORENEURON):
     '''
 
     # clear ecp temporary directory to avoid errors
-    try:
-        ecp_tmp = conf['reports']['ecp']['tmp_dir']
-    except:
-        pass
-    else:
-        if os.path.isdir(ecp_tmp):
-            for f in os.listdir(ecp_tmp):
-                if f.endswith(".h5"):
-                    try:
-                        os.remove(os.path.join(ecp_tmp, f))
-                    except Exception as e:
-                        print(f'Failed to delete {f}. {e}')
+    pc = h.ParallelContext()
+    if pc.id() == 0:
+        try:
+            ecp_tmp = conf['reports']['ecp']['tmp_dir']
+        except:
+            pass
+        else:
+            if os.path.isdir(ecp_tmp):
+                for f in os.listdir(ecp_tmp):
+                    if f.endswith(".h5"):
+                        try:
+                            os.remove(os.path.join(ecp_tmp, f))
+                        except Exception as e:
+                            print(f'Failed to delete {f}. {e}')
+    pc.barrier()
 
     sim.run()
 

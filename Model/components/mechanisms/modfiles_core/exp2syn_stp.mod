@@ -24,6 +24,8 @@ Short-term plasticity based on Fuhrmann et al. 2002, deterministic version.
 ENDCOMMENT
 
 NEURON {
+	THREADSAFE
+	
 	POINT_PROCESS Exp2Syn_STP
 	RANGE initW     : synaptic scaler for large scale networks
 	RANGE tau1, tau2, e, i
@@ -45,7 +47,7 @@ PARAMETER {
 	tau2 = 10 (ms) <1e-9,1e9>
 	e=0	(mV)
 
-	initW	= 1.0			: synaptic scaler for large scale networks
+	initW	= 1.0			: synaptic scaler for large scale networks (nS)
 	gmax	= 0.001	(uS)	: weight conversion factor (from nS to uS)
 	Use		= 1.0	(1)		: Utilization of synaptic efficacy
 	Dep		= 0		(ms)	: relaxation time constant from depression

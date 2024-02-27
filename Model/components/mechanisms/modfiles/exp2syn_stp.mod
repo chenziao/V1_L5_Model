@@ -24,6 +24,8 @@ Short-term plasticity based on Fuhrmann et al. 2002, deterministic version.
 ENDCOMMENT
 
 NEURON {
+	THREADSAFE
+	
 	POINT_PROCESS Exp2Syn_STP
 	RANGE initW     : synaptic scaler for large scale networks
 	RANGE tau1, tau2, e, i

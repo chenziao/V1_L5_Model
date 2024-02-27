@@ -1,7 +1,7 @@
 #!/bin/sh
-#SBATCH -J M1_build
-#SBATCH -o  ./stdout/M1_build.o%j.out
-#SBATCH -e  ./stdout/M1_build.e%j.error
+#SBATCH -J V1_build
+#SBATCH -o  ./stdout/V1_build.o%j.out
+#SBATCH -e  ./stdout/V1_build.e%j.error
 #SBATCH -t 0-48:00:00  # days-hours:minutes
 
 #SBATCH -N 1

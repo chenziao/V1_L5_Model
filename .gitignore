@@ -17,4 +17,3 @@ x86_64/
 /Model/input/*.h5
 /Model/input/*/*.h5
 /Model/output/*.*
-/Analysis/simulation_results/

@@ -1,7 +1,7 @@
 #!/bin/sh
-#SBATCH -J M1_sim 
-#SBATCH -o  ./stdout/M1_sim.o%j.out
-#SBATCH -e  ./stdout/M1_sim.e%j.error
+#SBATCH -J V1_sim 
+#SBATCH -o  ./stdout/V1_sim.o%j.out
+#SBATCH -e  ./stdout/V1_sim.e%j.error
 #SBATCH -t 0-48:00:00  # days-hours:minutes
 
 #SBATCH -N 1
@@ -21,12 +21,12 @@ echo "Started running at $START."
 export HDF5_USE_FILE_LOCKING=FALSE
 unset DISPLAY
 
-mpirun ./components/mechanisms/x86_64/special -mpi -python run_network.py config.json True # args: config file, whether use coreneuron
+mpirun ./components/mechanisms/x86_64/special -mpi -python run_network.py config_baseline.json True # args: config file, whether use coreneuron
 
 END=$(date)
 echo "Done running simulation at $END"
 
-TRIALNAME="fade_a01_t1.0"
+TRIALNAME="baseline_0"
 mkdir ../Analysis/simulation_results/"$TRIALNAME"
 cp -a output/. ../Analysis/simulation_results/"$TRIALNAME"
 cp -a ecp_tmp/. ../Analysis/simulation_results/"$TRIALNAME"

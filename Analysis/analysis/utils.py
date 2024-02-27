@@ -92,7 +92,7 @@ def load_spikes_to_df(spike_file, network_name):
     return spikes_df
 
 
-def load_ecp_to_xarray(ecp_file):
+def load_ecp_to_xarray(ecp_file, demean=False):
     with h5py.File(ecp_file, 'r') as f:
         ecp = xr.DataArray(
             f['ecp']['data'][()].T,
@@ -104,4 +104,6 @@ def load_ecp_to_xarray(ecp_file):
                 fs = 1000 / f['ecp']['time'][2] # Hz
             )
         )
+    if demean:
+        ecp -= ecp.mean(dim='time')
     return ecp

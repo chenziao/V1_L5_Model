@@ -440,10 +440,14 @@ class ReciprocalConnector(AbstractConnector):
         pr, pr_arg: Probability of reciprocal connection and its first input
             argument when it is a function, similar to p0, p0_arg, p1, p1_arg.
             It can be a function when it has an explicit relation with some node
-            properties such as distance. It requires two additional positional
-            arguments p0 and p1 even if they are not used, i.e.,
-            pr(pr_arg, p0, p1), in case pr is dependent on p0 and p1, e.g.,
+            properties such as distance. A function pr requires two additional
+            positional arguments p0 and p1 even if they are not used, i.e.,
+            pr(pr_arg, p0, p1), just in case pr is dependent on p0 and p1, e.g.,
             when normalized reciprocal rate NRR = pr/(p0*p1) is given.
+            When pr_arg is a string, the same value as p1_arg will be used for
+            pr_arg if the string contains '1', e.g., '1', 'p1'. Otherwise, e.g.,
+            '', '0', 'p0', p0_arg will be used for pr_arg. Specifying this can
+            avoid recomputing pr_arg when it's given by p0_arg or p1_arg.
         estimate_rho: Whether estimate rho that result in an overall pr. This
             is forced to be False if pr is a function or if rho is specified.
             To estimate rho, all the pairs with possible connections, meaning

@@ -7,8 +7,8 @@ import synapses
 import connectors
 from connectors import (
     spherical_dist, cylindrical_dist_z, GaussianDropoff, UniformInRange,
-    pr_2_rho, rho_2_pr, ReciprocalConnector, NormalizedReciprocalRate,
-    UnidirectionConnector, OneToOneSequentialConnector, GapJunction,
+    ReciprocalConnector, NormalizedReciprocalRate, UnidirectionConnector,
+    OneToOneSequentialConnector, GapJunction,
     syn_dist_delay_feng_section_PN, syn_dist_delay_feng
 )
 
@@ -31,7 +31,7 @@ y_start, y_end = - column_width / 2, column_width / 2
 z_start, z_end = - column_height / 2, column_height / 2
 
 # Distance constraint for all cells
-min_conn_dist = 15.0  # um. ~ PN soma diameter
+min_conn_dist = 16.0  # um. ~ PN soma diameter
 max_conn_dist = 300.0  # or np.inf
 
 # When enabled, a shell of virtual cells will be created around the core cells.
@@ -976,7 +976,7 @@ edge_add_properties = {
 # into a dictionary so the properties can be referenced in the files,
 # e.g., syn['file.json'].get('property')
 syn_dir = 'components/synaptic_models/synapses_STP'
-synapses.load(rng_obj=rng)
+synapses.load()
 syn = synapses.syn_params_dicts(syn_dir=syn_dir)
 
 # Build your edges into the networks
