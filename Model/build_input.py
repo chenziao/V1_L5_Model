@@ -27,8 +27,8 @@ off_time_expr = 1.0  # sec. Silence duration for experiments (longer for reset)
 n_cycles_expr = 10  # number of cycles for experiments
 
 SHELL_FR = {
-    'CP': (1.35, 1.6),
-    'CS': (1.35, 1.6),
+    'CP': (1.9, 1.3),
+    'CS': (1.35, 1.2),
     'FSI': (4.1, 6.0),
     'LTS': (0.2, 0.8)
 }  # firing rate of shell neurons (mean, stdev)
