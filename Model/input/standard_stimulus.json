@@ -1,7 +1,7 @@
 {
-  "n_assemblies": 10,
+  "n_assemblies": 9,
   "baseline": {
-    "t_stop": 31.0,
+    "t_stop": 28.0,
     "PN_firing_rate": 20.0,
     "ITN_firing_rate": 20.0
   },
@@ -10,17 +10,13 @@
     "on_time": 1.0,
     "off_time": 0.5,
     "t_start": 1.0,
-    "t_stop": 31.0
+    "t_stop": 28.0
   },
   "long": {
     "firing_rate": 50.0,
     "on_time": 1.0,
     "off_time": 0.5,
     "t_start": 1.0,
-    "t_stop": 31.0
-  },
-  "const": {
-    "t_stop": 31.0,
-    "firing_rate": 10.0
+    "t_stop": 28.0
   }
 }

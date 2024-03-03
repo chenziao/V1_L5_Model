@@ -13,12 +13,12 @@ from bmtk.utils.reports.spike_trains import PoissonSpikeGenerator
 INPUT_PATH = "./input"
 STIMULUS = ['baseline', 'short', 'long']
 
-N_ASSEMBLIES = 10  # number of assemblies
+N_ASSEMBLIES = 9  # number of assemblies
 NET_SEED = 4321  # random seed for network r.v.'s (e.g. assemblies, firing rate)
 PSG_SEED = 0  # poisson spike generator random seed for different trials
 rng = np.random.default_rng(NET_SEED)
 
-T_STOP = 31.  # sec. Simulation time
+T_STOP = 28.  # sec. Simulation time
 T_START = 1.0  # sec. Time to start burst input
 t_start = T_START
 on_time = 1.0  # sec. Burst input duration
