@@ -21,6 +21,10 @@ by the more efficient cnexp method.
 
 Short-term plasticity based on Fuhrmann et al. 2002, deterministic version.
 
+Caveat: Multiple sources connecting to the same synapse are identified as
+the same source, i.e., individual sources share the same set of short-term
+plasticity dynamical variables, tsyn, R, u, and Pr.
+
 ENDCOMMENT
 
 NEURON {
@@ -33,7 +37,7 @@ NEURON {
 
 	RANGE g
 	RANGE Use, Dep, Fac, u0
-	RANGE R, u, Pr
+	RANGE tsyn, R, u, Pr
 }
 
 UNITS {
@@ -60,6 +64,7 @@ ASSIGNED {
 	i (nA)
 	g (uS)
 	factor
+	tsyn (ms)
 	R
 	u
 	Pr
@@ -84,6 +89,7 @@ INITIAL {
 	factor = -exp(-tp/tau1) + exp(-tp/tau2)
 	factor = initW*gmax/factor
 
+	tsyn = 0
 	R = 1
 	u = u0
 }
@@ -99,7 +105,7 @@ DERIVATIVE state {
 	B' = -B/tau2
 }
 
-NET_RECEIVE(weight (uS), tsyn (ms)) {
+NET_RECEIVE(weight (uS)) {
 	INITIAL{
 		tsyn = t
 	}

@@ -5,8 +5,7 @@
     "stimulus": [
       "baseline",
       "long",
-      "short",
-      "ramp"
+      "short"
     ]
   }
 ]
