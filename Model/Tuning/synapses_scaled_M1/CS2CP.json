@@ -1,0 +1,9 @@
+{
+    "level_of_detail": "Exp2Syn_STP",
+    "initW": 5.9,
+    "tau1": 0.8,
+    "tau2": 4.4,
+    "Use": 0.14,
+    "Dep": 180.0,
+    "Fac": 44.0
+}

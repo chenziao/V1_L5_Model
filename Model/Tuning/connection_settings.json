@@ -1,0 +1,130 @@
+{
+    "CP2CP": {
+        "sec_id": 1,
+        "sec_x": 0.4,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "CP2CS": {
+        "sec_id": 1,
+        "sec_x": 0.4,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "CS2CS": {
+        "sec_id": 1,
+        "sec_x": 0.4,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "CS2CP": {
+        "sec_id": 1,
+        "sec_x": 0.4,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "CP2FSI": {
+        "sec_id": 1,
+        "sec_x": 0.5,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "CS2FSI": {
+        "sec_id": 1,
+        "sec_x": 0.5,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "CP2LTS": {
+        "sec_id": 1,
+        "sec_x": 0.5,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "CS2LTS": {
+        "sec_id": 1,
+        "sec_x": 0.5,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "FSI2CP": {
+        "sec_id": 0,
+        "sec_x": 0.5,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "FSI2CS": {
+        "sec_id": 0,
+        "sec_x": 0.5,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "LTS2CP": {
+        "sec_id": 2,
+        "sec_x": 0.8,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "LTS2CS": {
+        "sec_id": 2,
+        "sec_x": 0.8,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "FSI2FSI": {
+        "sec_id": 0,
+        "sec_x": 0.5,
+        "vclamp_amp": -50.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "FSI2LTS": {
+        "sec_id": 0,
+        "sec_x": 0.5,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "LTS2FSI": {
+        "sec_id": 0,
+        "sec_x": 0.5,
+        "vclamp_amp": -50.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    },
+    "LTS2LTS": {
+        "sec_id": 0,
+        "sec_x": 0.5,
+        "vclamp_amp": -60.0,
+        "threshold": 0.0,
+        "delay": 1.6,
+        "weight": 1.0
+    }
+}
