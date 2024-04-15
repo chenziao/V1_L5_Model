@@ -6,6 +6,9 @@ import h5py
 import os
 import copy
 
+
+ROOT_DIR_NAME = 'V1_L5_Model'
+
 STIMULUS_CONFIG = {
     'baseline': 'config_baseline.json',
     'short': 'config_short.json',
@@ -17,13 +20,9 @@ STIMULUS_CONFIG = {
     'else': 'config.json'
 }
 
-def stimulus_type_from_trial_name(trial_name):
-    stim_type = next(s for s in trial_name.split('_') if s in STIMULUS_CONFIG)
-    return stim_type, STIMULUS_CONFIG[stim_type]
-
 
 class ConfigHelper(object):
-    def __init__(self, config_file, root_dir_name='V1_L5_Model'):
+    def __init__(self, config_file, root_dir_name=ROOT_DIR_NAME):
         self.config_file = os.path.abspath(config_file)
         self.root_dir_name = root_dir_name
         with open(self.config_file, 'r') as f:
@@ -69,6 +68,44 @@ class ConfigHelper(object):
     def get_config_cwd(self):
         self.config_cwd = copy.deepcopy(self.config)
         map_json_inplace(self.config_cwd, self.get_file_cwd)
+
+
+def stimulus_type_from_trial_name(trial_name):
+    stim_type = next(s for s in trial_name.split('_') if s in STIMULUS_CONFIG)
+    return stim_type, STIMULUS_CONFIG[stim_type]
+
+
+def get_trial_info(TRIAL_PATH):
+    _, TRIAL_NAME = os.path.split(TRIAL_PATH)
+    stimulus_type, config = stimulus_type_from_trial_name(TRIAL_NAME)
+    isbaseline = stimulus_type == 'baseline' or stimulus_type == 'const'
+    isstandard = isbaseline or stimulus_type == 'short' or stimulus_type == 'long'
+
+    result_config_file = os.path.join(TRIAL_PATH, 'config_no_STP.json'
+                                      if 'no_STP' in TRIAL_NAME else config)
+    if not os.path.isfile(result_config_file):
+        result_config_file = os.path.join(os.path.split(result_config_file)[0],
+                                          STIMULUS_CONFIG['else'])
+
+    config_hp = ConfigHelper(result_config_file)
+    t_stop = config_hp.get_attr('run', 'tstop') / 1000
+
+    INPUT_PATH, _ = os.path.split(config_hp.get_attr('inputs', 'baseline_spikes', 'input_file'))
+    STIM_FILE = config_hp.get_attr('inputs', 'thalamus_spikes', 'input_file')
+    NODE_FILES = config_hp.get_attr('networks', 'nodes')
+    SPIKE_FILE = os.path.join(TRIAL_PATH, os.path.split(
+        config_hp.get_attr('output', 'spikes_file'))[1])
+
+    stim_file = 'standard_stimulus' if isstandard \
+        else os.path.splitext(os.path.split(STIM_FILE)[1])[0]
+    with open(os.path.join(INPUT_PATH, stim_file + '.json')) as f:
+        stim_setting = json.load(f)
+    stim_params = stim_setting[stimulus_type if isstandard else 'stim_params']
+
+    stim_type = (stimulus_type, isbaseline, isstandard)
+    paths = (INPUT_PATH, NODE_FILES, SPIKE_FILE)
+    stim_info = (t_stop, stim_setting, stim_params)
+    return stim_type, paths, stim_info, config_hp
 
 
 def map_json_inplace(val, func, obj=None, key=None):

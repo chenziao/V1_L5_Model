@@ -12,6 +12,13 @@ rng = np.random.default_rng()
 ############################## CONNECT CELLS #################################
 
 # Utility Functions
+def num_prop(ratio, N):
+    """Calculate numbers of total N in proportion to ratio"""
+    ratio = np.asarray(ratio)
+    p = np.cumsum(np.insert(ratio.ravel(), 0, 0))  # cumulative proportion
+    return np.diff(np.round(N / p[-1] * p).astype(int)).reshape(ratio.shape)
+
+
 def decision(prob, size=None):
     """
     Make single random decision based on input probability.
@@ -281,7 +288,7 @@ class AbstractConnector(ABC):
         return NotImplemented
 
     @staticmethod
-    def is_same_pop(source, target, quick=True):
+    def is_same_pop(source, target, quick=False):
         """Whether two NodePool objects direct to the same population"""
         if quick:
             # Quick check (compare filter conditions)
@@ -564,7 +571,7 @@ class ReciprocalConnector(AbstractConnector):
             raise ValueError("Target nodes do not exists")
 
         # Setup nodes
-        self.recurrent = self.is_same_pop(self.source, self.target, quick=True)
+        self.recurrent = self.is_same_pop(self.source, self.target)
         self.source_ids = [s.node_id for s in self.source]
         self.n_source = len(self.source_ids)
         self.source_list = list(self.source)

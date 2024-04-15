@@ -8,33 +8,39 @@ import numpy as np
 import pandas as pd
 from bmtool.util import util
 from bmtk.utils.reports.spike_trains import PoissonSpikeGenerator
+from connectors import num_prop
 
 
 INPUT_PATH = "./input"
 STIMULUS = ['baseline', 'short', 'long']
 
 N_ASSEMBLIES = 9  # number of assemblies
-NET_SEED = 4321  # random seed for network r.v.'s (e.g. assemblies, firing rate)
+NET_SEED = 123  # random seed for network r.v.'s (e.g. assemblies, firing rate)
 PSG_SEED = 0  # poisson spike generator random seed for different trials
-rng = np.random.default_rng(NET_SEED)
 
 T_STOP = 28.  # sec. Simulation time
 T_START = 1.0  # sec. Time to start burst input
-t_start = T_START
+t_start = T_START  # to be imported to other scipts
 on_time = 1.0  # sec. Burst input duration
 off_time = 0.5  # sec. Silence duration
 off_time_expr = 1.0  # sec. Silence duration for experiments (longer for reset)
 n_cycles_expr = 10  # number of cycles for experiments
 
 SHELL_FR = {
-    'CP': (1.5, 1.4),
-    'CS': (1.0, 0.9),
-    'FSI': (6.0, 3.5),
-    'LTS': (3.0, 2.0)
+    'CP': (1.8, 1.4),
+    'CS': (1.4, 1.1),
+    'FSI': (7.5, 6.0),
+    'LTS': (3.5, 4.0)
 }  # firing rate of shell neurons (mean, stdev)
 SHELL_FR = pd.DataFrame.from_dict(
     SHELL_FR, orient='index', columns=('mean', 'stdev')).rename_axis('pop_name')
 SHELL_CONSTANT_FR = False  # whether use constant firing rate for shell neurons
+
+
+def get_rng(seed=NET_SEED, seed_offset=0):
+    return np.random.default_rng(seed + seed_offset)
+
+default_rng = get_rng()
 
 
 def num_prop(ratio, N):
@@ -44,7 +50,7 @@ def num_prop(ratio, N):
     return np.diff(np.round(N / p[-1] * p).astype(int)).reshape(ratio.shape)
 
 
-def lognormal(mean, stdev, size=None):
+def lognormal(mean, stdev, size=None, rng=default_rng):
     """Generate random values from lognormal given mean and stdev"""
     sigma2 = np.log((stdev / mean) ** 2 + 1)
     mu = np.log(mean) - sigma2 / 2
@@ -52,11 +58,11 @@ def lognormal(mean, stdev, size=None):
     return rng.lognormal(mu, sigma, size)
 
 
-def psg_lognormal_fr(psg, node_ids, mean, stdev, times):
+def psg_lognormal_fr(psg, node_ids, mean, stdev, times, rng=default_rng):
     """Generate lognormal distributed firing rate for each node independently.
     Then add the firing rate of each node to the given PoissonSpikeGenerator.
     """
-    firing_rates = lognormal(mean, stdev, len(node_ids))
+    firing_rates = lognormal(mean, stdev, len(node_ids), rng=rng)
     for node_id, fr in zip(node_ids, firing_rates):
         psg.add(node_ids=node_id, firing_rate=fr, times=times)
     return firing_rates
@@ -83,27 +89,53 @@ def get_populations(node_df, pop_names, only_id=False):
     return {p: func(node_df, p) for p in pop_names}
 
 
-def get_assembly(Thal_nodes, Cortex_nodes, n_assemblies):
+def get_assembly_ids(pop_nodes, assy_idx=[slice(None)]):
+    pop_assy = []
+    for nodes in pop_nodes:
+        ids = np.array(nodes)
+        pop_assy.append([ids[idx] for idx in assy_idx])
+    return pop_assy
+
+
+def assign_assembly(N, n_assemblies, rng=default_rng):
+    n_per_assemb = num_prop(np.ones(n_assemblies), N)
+    split_idx = np.cumsum(n_per_assemb)[:-1]  # indices at which to split
+    assy_idx = rng.permutation(N)  # random shuffle for assemblies
+    assy_idx = np.split(assy_idx, split_idx)  # split into assemblies
+    assy_idx = [np.sort(idx) for idx in assy_idx]
+    return assy_idx
+
+
+def get_assembly(Thal_nodes, PN_nodes, n_assemblies, rng=default_rng):
     """Divide PNs into n_assemblies and return lists of ids in each assembly"""
-    CP_nodes, CS_nodes = Cortex_nodes['CP'], Cortex_nodes['CS']
-    num_CP, num_CS = len(CP_nodes), len(CS_nodes)
-    num_PN = len(Thal_nodes)
-    if num_CP + num_CS != num_PN:
+    num_PN = len(PN_nodes)
+    if len(Thal_nodes) != num_PN:
         raise ValueError("Number of thalamus cells don't match number of PNs")
 
-    n_per_assemb = num_prop(np.ones(n_assemblies), num_PN)
-    split_idx = np.cumsum(n_per_assemb)[:-1]  # indices at which to split
-    assemb_idx = rng.permutation(num_PN)  # random shuffle for assemblies
-    assemb_idx = np.split(assemb_idx, split_idx)  # split into assemblies
+    assy_idx = assign_assembly(num_PN, n_assemblies, rng=rng)
+    Thal_assy, PN_assy = get_assembly_ids((Thal_nodes, PN_nodes), assy_idx)
+    return Thal_assy, PN_assy
 
-    Thal_ids = np.array(Thal_nodes)
-    PN_ids = np.array(CP_nodes + CS_nodes)
-    Thal_assy = []
-    PN_assy = []
-    for idx in assemb_idx:
-        idx = np.sort(idx)
-        Thal_assy.append(Thal_ids[idx])
-        PN_assy.append(PN_ids[idx])
+
+CORTEX_SIZE = np.array([[-300., 300.], [-300., 300.]]) # um. x, y bounds
+GRID_ID = np.array([
+    [6, 2, 8],
+    [0, 4, 5],
+    [3, 7, 1]
+])
+def get_grid_assembly(Thal_nodes, PN_nodes_df,
+                      grid_id=GRID_ID, cortex_size=CORTEX_SIZE):
+    if len(PN_nodes_df) != len(Thal_nodes):
+        raise ValueError("Number of thalamus cells don't match number of PNs")
+    bins = []
+    for i in range(2):
+        bins.append(np.linspace(*cortex_size[i], grid_id.shape[i] + 1)[1:])
+        bins[i][-1] += 1.
+    PN_nodes_df['assy_id'] = grid_id[np.digitize(PN_nodes_df['pos_x'], bins[0]),
+                                     np.digitize(PN_nodes_df['pos_y'], bins[1])]
+
+    assy_idx = [PN_nodes_df['assy_id'] == i for i in np.sort(grid_id, axis=None)]
+    Thal_assy, PN_assy = get_assembly_ids((Thal_nodes, PN_nodes_df.index), assy_idx)
     return Thal_assy, PN_assy
 
 
@@ -119,6 +151,8 @@ def input_pairs_to_file(file, source, target):
 
 def input_pairs_from_file(file, pop_index=None):
     """Load ids of input source/target pairs from file"""
+    if not os.path.isfile(file):
+        raise FileNotFoundError("%s has not been created." % file)
     with open(file, 'r') as f:
         ids = [np.array(row, dtype='uint64') for row in csv.reader(f)]
     n_assemblies = len(ids) // 2
@@ -171,7 +205,7 @@ def plot_fr_traces(params, figsize=(10, 2), **line_kwargs):
         ax.set_ylabel('Firing rate (Hz)')
         ax.set_xlim(t[0], t[-1])
         ax.set_ylim(bottom=0.)
-        ax.set_title(f'Assembly {i:d}')
+        ax.set_title('Assembly %d' % i)
     ax.set_xlabel('Time (sec)')
     plt.tight_layout()
     return fig, axs
@@ -299,9 +333,9 @@ def get_join_split(size_assemblies, n_steps=20,
     ratio[0] += low_portion
     split_ids = []
     if seed is not None:
-        rng_tmp = np.random.default_rng(seed)  # shuffle ids in each assembly
+        rng = get_rng(seed=NET_SEED, seed_offset=seed)  # shuffle ids in each assembly
     for n in size_assemblies:
-        assy_ids = np.arange(n) if seed is None else rng_tmp.permutation(n)  
+        assy_ids = np.arange(n) if seed is None else rng.permutation(n)  
         n_per_step = num_prop(ratio, n * high_portion)  # split into steps
         split_idx = np.cumsum(n_per_step)  # indices at which to split
         split_ids.append(np.split(assy_ids, split_idx)[:-1])
@@ -403,17 +437,17 @@ def get_std_param(stim_setting={}, stimulus='baseline'):
     """
     p = stim_setting.get(stimulus)
     n_assemblies = stim_setting.get('n_assemblies', N_ASSEMBLIES)
-    if stimulus == 'baseline':
+    if 'baseline' in stimulus:
         times = (0, p.get('t_stop', T_STOP))
         fr_params = [{'firing_rate': p['PN_firing_rate'], 'times': times},
                      {'firing_rate': p['ITN_firing_rate'], 'times': times}]
-    elif stimulus == 'const':
+    elif 'const' in stimulus:
         t_stop = p.get('t_stop', T_STOP)
         fr_params = get_fr_long(n_assemblies, [p['firing_rate']] * 2,
                                 on_time=t_stop, off_time=0., t_stop=t_stop)
-    elif stimulus == 'short':
+    elif 'short' in stimulus:
         fr_params = get_fr_short(n_assemblies, **p)
-    elif stimulus == 'long':
+    elif 'long' in stimulus:
         fr_params = get_fr_long(n_assemblies, **p)
     else:
         raise ValueError("%s is not standard stimulus type" % stimulus)
@@ -530,24 +564,25 @@ def load_stim_file(input_path=INPUT_PATH, stim_file=None, file_name=''):
     Return: stimulus settings, updated stimulus file path
     """
     if stim_file is None:
-        load_stim_file = None
         stim_file = new_file_name(input_path, file_name, '.json')
+        stim_setting = {}
+        print("Stimulus file for %s not specified. "
+              "Using default settings." % file_name)
     else:
         _, ext = os.path.splitext(stim_file)
         if ext != '.json':
             stim_file += '.json'
-        load_stim_file = stim_file if os.path.isfile(stim_file) else None
-        stim_file = os.path.join(input_path, os.path.split(stim_file)[1])
-        if load_stim_file is None and os.path.isfile(stim_file):
-            load_stim_file = stim_file
-
-    if load_stim_file is None:
-        stim_setting = {}
-        print("Warning: Stimulus file for %s not found. "
-              "Using default settings." % file_name)
-    else:
-        with open(load_stim_file, 'r') as f:
-            stim_setting = json.load(f)
+        loading_stim_file = stim_file if os.path.isfile(stim_file) else None
+        file_name = os.path.split(stim_file)[1]
+        stim_file = os.path.join(input_path, file_name)
+        if loading_stim_file is None and os.path.isfile(stim_file):
+            loading_stim_file = stim_file
+        if loading_stim_file is None:
+            stim_setting = None
+            print("Stimulus file %s not found." % file_name)
+        else:
+            with open(loading_stim_file, 'r') as f:
+                stim_setting = json.load(f)
     return stim_setting, stim_file
 
 
@@ -586,7 +621,7 @@ def write_seeds_file(psg_seed=PSG_SEED, net_seed=NET_SEED, stimulus=STIMULUS,
     if seed:
         seed = seed[0]
         stimulus_new = [s for s in stimulus if s not in seed['stimulus']]
-        seed['stimulus'] += stimulus_new
+        seed['stimulus'].extend(stimulus_new)
         overwrite = bool(stimulus_new)
     else:
         seed = dict(net_seed=net_seed, psg_seed=psg_seed, stimulus=stimulus)
@@ -597,9 +632,10 @@ def write_seeds_file(psg_seed=PSG_SEED, net_seed=NET_SEED, stimulus=STIMULUS,
             json.dump(seeds, f, indent=2)
 
 
-def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
-                burst_fr=None, psg_seed=PSG_SEED, input_path=INPUT_PATH,
-                stimulus=STIMULUS, stim_files={}):
+def build_input(t_stop=T_STOP, t_start=T_START,
+                n_assemblies=N_ASSEMBLIES, grid_assembly=False,
+                burst_fr=None, net_seed=NET_SEED, psg_seed=PSG_SEED,
+                input_path=INPUT_PATH, stimulus=STIMULUS, stim_files={}):
     if not os.path.isdir(input_path):
         os.makedirs(input_path)
         print("The new input directory is created!")
@@ -621,12 +657,21 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     assembly_id_file = os.path.join(input_path, "Assembly_ids.csv")
     if n_assemblies > 0:
         Thal_nodes = df2node_id(nodes['thalamus'])
-        Thal_assy, PN_assy = get_assembly(Thal_nodes, Cortex_nodes, n_assemblies)
+        PN_nodes = Cortex_nodes['CP'] + Cortex_nodes['CS']
+        if grid_assembly:
+            Thal_assy, PN_assy = get_grid_assembly(
+                Thal_nodes, nodes['cortex'].loc[PN_nodes])
+            n_assemblies = len(Thal_assy)
+        else:
+            rng = get_rng(seed=net_seed, seed_offset=100)
+            Thal_assy, PN_assy = get_assembly(
+                Thal_nodes, PN_nodes, n_assemblies, rng=rng)
         input_pairs_to_file(assembly_id_file, Thal_assy, PN_assy)
-    elif 'baseline' in stimulus:
-        raise ValueError("Use nonzero `n_assemblies` when building baseline")
     else:
-        Thal_assy, _ = input_pairs_from_file(assembly_id_file)
+        try:
+            Thal_assy, _ = input_pairs_from_file(assembly_id_file)
+        except FileNotFoundError as e:
+            raise FileNotFoundError("Use nonzero `n_assemblies`") from e
         n_assemblies = len(Thal_assy)
 
     print("Building all input spike trains...")
@@ -638,88 +683,71 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     Thal_burst_fr = 50.0 if burst_fr is None else burst_fr  # Hz. for thalamus burst input
     Thal_const_fr = 10.0 if burst_fr is None else burst_fr  # Hz. for thalamus constant input
 
+    def PSG(population='thalamus', seed_offset=100):
+        seed = psg_seed + seed_offset
+        return PoissonSpikeGenerator(population=population, seed=seed)
+
     std_stim_params = {'n_assemblies': n_assemblies}  # standard stimulus parameters
-    # Baseline input
-    if 'baseline' in stimulus:
-        std_stim_params['baseline'] = dict(t_stop=t_stop,
-            PN_firing_rate=PN_baseline_fr, ITN_firing_rate=ITN_baseline_fr)
-        fr_params = get_std_param(std_stim_params, 'baseline')
-        psg = PoissonSpikeGenerator(population='baseline', seed=psg_seed)
-        psg = get_psg_from_fr(psg, [Base_nodes['CP'] + Base_nodes['CS'],
-            Base_nodes['FSI'] + Base_nodes['LTS']], fr_params)
-        psg.to_sonata(os.path.join(input_path, "baseline.h5"))
+    for stim in stimulus:
+        # Baseline input
+        if stim == 'baseline':
+            std_stim_params['baseline'] = dict(t_stop=t_stop,
+                PN_firing_rate=PN_baseline_fr, ITN_firing_rate=ITN_baseline_fr)
+            fr_params = get_std_param(std_stim_params, 'baseline')
+            psg = PSG(population='baseline', seed_offset=0)
+            psg = get_psg_from_fr(psg, [Base_nodes['CP'] + Base_nodes['CS'],
+                Base_nodes['FSI'] + Base_nodes['LTS']], fr_params)
+            psg.to_sonata(os.path.join(input_path, "baseline.h5"))
+            continue
 
-    # Constant thalamus input
-    if 'const' in stimulus:
-        std_stim_params['const'] = dict(t_stop=t_stop, firing_rate=Thal_const_fr)
-        fr_params = get_std_param(std_stim_params, 'const')
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
-        psg = get_psg_from_fr(psg, Thal_assy, fr_params)
-        psg.to_sonata(os.path.join(input_path, "thalamus_const.h5"))
-        
+        if any(s in stim for s in ('short', 'long', 'const')):
+            if 'const' in stim:
+                # Constant thalamus input
+                std_stim_params[stim] = dict(t_stop=t_stop, firing_rate=Thal_const_fr)
+            else:
+                # Short/Long burst thalamus input
+                std_stim_params[stim] = dict(firing_rate=Thal_burst_fr,
+                    on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
+            fr_params = get_std_param(std_stim_params, stim)
+            psg = get_psg_from_fr(PSG(), Thal_assy, fr_params)
+            psg.to_sonata(os.path.join(input_path, "thalamus_" + stim + ".h5"))
+            continue
 
-    # Short burst thalamus input
-    if 'short' in stimulus:
-        std_stim_params['short'] = dict(firing_rate=Thal_burst_fr,
-            on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
-        fr_params = get_std_param(std_stim_params, 'short')
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
-        psg = get_psg_from_fr(psg, Thal_assy, fr_params)
-        psg.to_sonata(os.path.join(input_path, "thalamus_short.h5"))
+        # Special stimulus types
+        stim_setting, stim_file = load_stim_file(input_path=input_path,
+            stim_file=stim_files.get(stim, None), file_name='thalamus_' + stim)
+        if stim_setting is None:
+            print("Skiping stimulus %s." % stim)
+            continue
 
-
-    # Long burst thalamus input
-    if 'long' in stimulus:
-        std_stim_params['long'] = dict(firing_rate=Thal_burst_fr,
-            on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
-        fr_params = get_std_param(std_stim_params, 'long')
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
-        psg = get_psg_from_fr(psg, Thal_assy, fr_params)
-        psg.to_sonata(os.path.join(input_path, "thalamus_long.h5"))
+        if 'ramp' in stim:
+            # Ramping thalamus input
+            fr_params, stim_setting = get_ramp_param(stim_setting=stim_setting,
+                firing_rate=1.5 * Thal_burst_fr)
+            assy_idx = stim_setting['setting']['assembly_index']
+            psg = get_psg_from_fr(PSG(), [Thal_assy[i] for i in assy_idx], fr_params)
+        elif 'join' in stim:
+            # Joining thalamus input
+            fr_params, stim_setting, split_ids = get_join_param(
+                stim_setting=stim_setting, size_assemblies=[*map(len, Thal_assy)],
+                firing_rate=1.5 * Thal_burst_fr, seed=psg_seed + 200)
+            assy_idx = stim_setting['setting']['assembly_index']
+            psg = get_psg_from_fr(PSG(), split_join_assemblies(
+                [Thal_assy[i] for i in assy_idx], split_ids), fr_params)
+        elif 'fade' in stim:
+            # Fading thalamus input
+            fr_params, stim_setting = get_fade_param(stim_setting=stim_setting,
+                firing_rate=1.5 * Thal_burst_fr)
+            assy_idx = stim_setting['setting']['assembly_index']
+            psg = get_psg_from_fr(PSG(), [Thal_assy[i] for i in assy_idx], fr_params)
+        else:
+            print("Stimulus %s not defined. Skipping." % stim)
+            continue
+        psg.to_sonata(stim_file.replace('.json', '.h5'))
+        with open(stim_file, 'w') as f:
+            json.dump(stim_setting, f, indent=2)
 
     write_std_stim_file(stim_params=std_stim_params, input_path=input_path)
-
-    # Ramping thalamus input
-    if 'ramp' in stimulus:
-        stim_setting, stim_file = load_stim_file(input_path=input_path,
-            stim_file=stim_files.get('ramp', None), file_name='thalamus_ramp')
-        fr_params, stim_setting = get_ramp_param(stim_setting=stim_setting,
-            firing_rate=1.5 * Thal_burst_fr)
-        assy_idx = stim_setting['setting']['assembly_index']
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
-        psg = get_psg_from_fr(psg, [Thal_assy[i] for i in assy_idx], fr_params)
-        psg.to_sonata(stim_file.replace('.json', '.h5'))
-        with open(stim_file, 'w') as f:
-            json.dump(stim_setting, f, indent=2)
-
-    # Joining thalamus input
-    if 'join' in stimulus:
-        stim_setting, stim_file = load_stim_file(input_path=input_path,
-            stim_file=stim_files.get('join', None), file_name='thalamus_join')
-        fr_params, stim_setting, split_ids = get_join_param(
-            stim_setting=stim_setting, size_assemblies=[*map(len, Thal_assy)],
-            firing_rate=1.5 * Thal_burst_fr, seed=psg_seed + 200)
-        assy_idx = stim_setting['setting']['assembly_index']
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
-        psg = get_psg_from_fr(psg, split_join_assemblies(
-            [Thal_assy[i] for i in assy_idx], split_ids), fr_params)
-        psg.to_sonata(stim_file.replace('.json', '.h5'))
-        with open(stim_file, 'w') as f:
-            json.dump(stim_setting, f, indent=2)
-
-    # Fading thalamus input
-    if 'fade' in stimulus:
-        stim_setting, stim_file = load_stim_file(input_path=input_path,
-            stim_file=stim_files.get('fade', None), file_name='thalamus_fade')
-        fr_params, stim_setting = get_fade_param(stim_setting=stim_setting,
-            firing_rate=1.5 * Thal_burst_fr)
-        assy_idx = stim_setting['setting']['assembly_index']
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
-        psg = get_psg_from_fr(psg, [Thal_assy[i] for i in assy_idx], fr_params)
-        psg.to_sonata(stim_file.replace('.json', '.h5'))
-        with open(stim_file, 'w') as f:
-            json.dump(stim_setting, f, indent=2)
-
     print("Core cells: %.3f sec" % (time.perf_counter() - start_timer))
 
     # These inputs are for the baseline firing rates of the cells in the shell.
@@ -727,7 +755,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         start_timer = time.perf_counter()
 
         # Generate Poisson spike trains for shell cells
-        psg = PoissonSpikeGenerator(population='shell', seed=psg_seed + 1000)
+        psg = PSG(population='shell', seed_offset=1000)
         shell_nodes = get_populations(nodes['shell'], pop_names, only_id=True)
 
         # Select effective nodes in shell that only has connections to core
@@ -736,8 +764,10 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
             path for path in edge_paths if 'shell_cortex' in path['edges_file']))
         effective_shell = set(shell_edges['source_node_id'])
 
-        print("Proportion of effective cells in shell.")
         fr_list = []
+        if not SHELL_CONSTANT_FR:
+            rng = get_rng(seed=net_seed)
+        print("Proportion of effective cells in shell.")
         for p, node_ids in shell_nodes.items():
             effective_ids = [x for x in node_ids if x in effective_shell]
             ratio = len(effective_ids) / len(node_ids)
@@ -751,7 +781,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
             else:
                 # Lognormal distributed mean firing rate
                 fr_list.append([effective_ids, psg_lognormal_fr(psg, effective_ids,
-                    mean=fr['mean'], stdev=fr['stdev'], times=(0, t_stop))])
+                    mean=fr['mean'], stdev=fr['stdev'], times=(0, t_stop), rng=rng)])
 
         SHELL_FR.to_csv(os.path.join(input_path, "Shell_FR_stats.csv"))
         if not SHELL_CONSTANT_FR:
@@ -763,7 +793,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         psg.to_sonata(os.path.join(input_path, "shell.h5"))
         print("Shell cells: %.3f sec" % (time.perf_counter() - start_timer))
 
-    write_seeds_file(psg_seed=psg_seed, net_seed=NET_SEED, stimulus=stimulus,
+    write_seeds_file(psg_seed=psg_seed, net_seed=net_seed, stimulus=stimulus,
                      input_path=input_path, seeds_file_name='random_seeds')
     print("Done!")
 
@@ -771,49 +801,44 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-stop', '--t_stop', type=float,
-                        nargs='?', default=T_STOP,
-                        help="Simulation stop time", metavar='t_stop')
+                        nargs='?', default=T_STOP, metavar='t_stop',
+                        help="Simulation stop time")
     parser.add_argument('-start', '--t_start', type=float,
-                        nargs='?', default=T_START,
-                        help="Simulation start period", metavar='t_start')
+                        nargs='?', default=T_START, metavar='t_start',
+                        help="Simulation start period")
     parser.add_argument('-n', '--n_assemblies', type=int,
-                        nargs='?', default=N_ASSEMBLIES,
-                        help="Number of assemblies", metavar='# Assemblies')
+                        nargs='?', default=N_ASSEMBLIES, metavar='# Assemblies',
+                        help="Number of assemblies")
+    parser.add_argument('-grid', '--grid_assembly', action='store_true',
+                        help="Use spatial grids to assign assemblies")
     parser.add_argument('-fr', '--burst_fr', type=float,
-                        nargs='?', default=None,
-                        help="Thalamus burst input firing rate", metavar='Firing Rate')
+                        nargs='?', default=None, metavar='Firing Rate',
+                        help="Thalamus burst input firing rate")
     parser.add_argument('-net', '--net_seed', type=int,
-                        nargs='?', default=NET_SEED,
-                        help="Network random seed", metavar='Network Seed')
+                        nargs='?', default=NET_SEED, metavar='Network Seed',
+                        help="Network random seed")
     parser.add_argument('-psg', '--psg_seed', type=int,
-                        nargs='?', default=PSG_SEED,
-                        help="Poisson generator seed", metavar='PSG Seed')
+                        nargs='?', default=PSG_SEED, metavar='PSG Seed',
+                        help="Poisson generator seed")
     parser.add_argument('-path', '--input_path', type=str,
-                        nargs='?', default=INPUT_PATH,
-                        help="Input path", metavar='Input Path')
+                        nargs='?', default=INPUT_PATH, metavar='Input Path',
+                        help="Input path")
     parser.add_argument('-s', '--stimulus', type=str,
-                        nargs="*", default=STIMULUS,
-                        help="List of stimulus types", metavar='Stimulus')
-    parser.add_argument('-f', '--stim_files', type=str,
+                        nargs="*", default=STIMULUS, metavar='Stimulus',
+                        help="List of stimulus types. List can be empty.")
+    parser.add_argument('-sf', '--stim_files', type=str,
                         nargs="*", default=[], metavar='Stimulus Files',
-                        help="Key value pairs of stimulus type and file path, "
-                        "e.g. stim1 file1 stim2 file2")
+                        help="List of stimulus file names/paths."
+                        "Inferred stimulus types are added to the stimulus list."
+                        "e.g., -sf ramp1 ramp2 ./input/join.json")
     args = parser.parse_args()
 
-    stimulus = args.stimulus
-    stim_files = args.stim_files
-    if len(stim_files) % 2:
-        if len(stim_files) == 1 and len(stimulus) == 1:
-            stim_files = {stimulus[0]: stim_files[0]}
-        else:
-            raise ValueError("Number of keys and values in stim_files should match")
-    else:
-        stim_files = dict(zip(stim_files[::2], stim_files[1::2]))
-
     NET_SEED = args.net_seed
-    rng = np.random.default_rng(NET_SEED)
+    stimulus = args.stimulus
+    stim_files = {os.path.split(s)[1].removesuffix('.json'): s for s in args.stim_files}
+    stimulus.extend(s for s in stim_files if s not in stimulus)
 
     build_input(t_stop=args.t_stop, t_start=args.t_start,
-                n_assemblies=args.n_assemblies, burst_fr=args.burst_fr,
-                psg_seed=args.psg_seed, input_path=args.input_path,
-                stimulus=stimulus, stim_files=stim_files)
+                n_assemblies=args.n_assemblies, grid_assembly = args.grid_assembly,
+                burst_fr=args.burst_fr, net_seed=args.net_seed, psg_seed=args.psg_seed,
+                input_path=args.input_path, stimulus=stimulus, stim_files=stim_files)

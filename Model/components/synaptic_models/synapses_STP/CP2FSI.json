@@ -1,6 +1,6 @@
 {
     "level_of_detail": "Exp2Syn_STP",
-    "initW": 5.7,
+    "initW": 3.4,
     "tau1": 0.1,
     "tau2": 1.5,
     "Use": 0.31,

@@ -1089,7 +1089,7 @@ conn = net.add_edges(
 )
 
 # LTS
-g_gap = 0.00019  # microsiemens
+g_gap = 0.0025  # microsiemens
 # gap junction probability uncorrelated with chemical synapse
 gap_junc_LTS = GapJunction(
     p=GaussianDropoff(
