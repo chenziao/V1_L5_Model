@@ -213,30 +213,42 @@ def plot_fr_traces(params, figsize=(10, 2), **line_kwargs):
 
 def get_fr_short(n_assemblies, firing_rate=(0., 0.),
                  on_time=on_time, off_time=off_time,
-                 t_start=T_START, t_stop=T_STOP):
+                 t_start=T_START, t_stop=T_STOP, n_rounds=1):
     """Short burst is delivered to each assembly sequentially within each cycle.
     n_assemblies: number of assemblies
     firing_rate: 2-tuple of firing rate at off and on time, respectively
         Pad zero to the beginning if sequence is shorter than required
     t_start, t_stop: start and stop time of the stimulus cycles
+    n_rounds: number of short bursts each assembly receives per cycle.
+        It can be a fractional number. In this case, some fraction of assemblies
+        will receive one more short burst per cycle than others.
     Return: firing rate traces
     """
     firing_rate = np.asarray(firing_rate).ravel()[:2]
     firing_rate = np.concatenate((np.zeros(2 - firing_rate.size), firing_rate))
     t_cycle, n_cycle = get_stim_cycle(on_time, off_time, t_start, t_stop)
 
-    times = np.empty((n_assemblies, n_cycle * 4 + 2))
+    n_bursts = int(np.ceil(n_rounds * n_assemblies))
+    n_rounds = int(np.ceil(n_rounds))
+    times = np.empty((n_assemblies, n_rounds * n_cycle * 4 + 2))
     times[:, 0] = 0.
     times[:, -1] = t_stop
-    on_times = np.linspace(0, on_time, n_assemblies + 1)
+    on_times = np.linspace(0, on_time, n_bursts + 1)
+    fr = np.append(np.tile(firing_rate, n_rounds * n_cycle), firing_rate[0])
+    fr = np.tile(np.repeat(fr, 2), (n_assemblies, 1))
     for j in range(n_cycle):
         ts = t_start + t_cycle * j + on_times
-        for i in range(n_assemblies):
-            times[i, j * 4 + 1:j * 4 + 5] = np.repeat(ts[i:i + 2], 2)
-    fr = np.append(np.tile(firing_rate, n_cycle), firing_rate[0])
-    fr = np.repeat(fr, 2)
+        for k in range(n_rounds):
+            t = (j * n_rounds + k) * 4 + 1
+            for i in range(n_assemblies):
+                tt = k * n_assemblies + i
+                if tt < n_bursts:
+                    times[i, t:t + 4] = np.repeat(ts[tt:tt + 2], 2)
+                else:
+                    times[i, t:t + 4] = ts[-1]
+                    fr[i, t:t + 4] = firing_rate[0]
 
-    params = [dict(firing_rate=fr, times=times[i]) for i in range(n_assemblies)]
+    params = [dict(firing_rate=fr[i], times=times[i]) for i in range(n_assemblies)]
     return params
 
 
@@ -708,6 +720,8 @@ def build_input(t_stop=T_STOP, t_start=T_START,
                 # Short/Long burst thalamus input
                 std_stim_params[stim] = dict(firing_rate=Thal_burst_fr,
                     on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
+                if stim == 'short':
+                    std_stim_params[stim]['n_rounds'] = 2
             fr_params = get_std_param(std_stim_params, stim)
             psg = get_psg_from_fr(PSG(), Thal_assy, fr_params)
             psg.to_sonata(os.path.join(input_path, "thalamus_" + stim + ".h5"))
