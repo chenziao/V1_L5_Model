@@ -23,29 +23,33 @@ begintemplate CP_Cell
 
 		/////// parameters ///////
 		Vrest = -88.5366550238 // resting potential
-		Vinit = -84.26 // initial potential (actual Vrest)
+		Vinit = -84.0 // initial potential (actual Vrest)
 		// celsius = 34.0 // for in vitro opt
 
 		// geometry properties
-		somaL = 48.4123467666
-		somaDiam = 28.2149102762
+		L_scale = 0.75 // scale length for dendrites
+		diam_scale = 0.5 // scale diameter for all compartments
+		somaL = 28.2149102762
+		somaDiam = 48.4123467666 * diam_scale
 		axonL = 594.292937602
-		axonDiam =  1.40966286462
-		apicL = 785.713908009 // =261.904636003*3 simplify 3 compartments into single
-		apicDiam = 1.5831889597
-		bdendL = 299.810775175
-		bdendDiam = 2.2799248874
+		axonDiam =  1.40966286462 * diam_scale
+		apicL = 785.713908009 * L_scale // =261.904636003*3 simplify 3 compartments into single
+		apicDiam = 1.5831889597 * diam_scale
+		bdendL = 299.810775175 * L_scale
+		bdendDiam = 2.2799248874 * diam_scale
 
 		// passive properties
+        RM_scale = 1.0 // scale membrane resistance
+		Cap_scale = 1.0 // scale membrance capacitance
 		rall = 114.510490019 // Ra all
-		axonCap =  1.01280903702 // capacitance
-		somaCap =  1.78829677463
-		apicCap = 1.03418636866
-		bdendCap = 1.89771901209
-		axonRM = 3945.2107187 // Rm
-		somaRM = 18501.7540916
-		apicRM = 10751.193413
-		dendRM = 13123.00174
+		axonCap =  1.01280903702 * Cap_scale // capacitance
+		somaCap =  1.78829677463 * Cap_scale
+		apicCap = 1.03418636866 * Cap_scale
+		bdendCap = 1.89771901209 * Cap_scale
+		axonRM = 3945.2107187 * RM_scale // Rm
+		somaRM = 18501.7540916 * RM_scale
+		apicRM = 10751.193413 * RM_scale
+		dendRM = 13123.00174 * RM_scale
 
 		// Na, K reversal potentials calculated from BenS internal/external solutions via Nernst eq.
 		p_ek = -104.0 // these reversal potentials for in vitro conditions
@@ -69,10 +73,12 @@ begintemplate CP_Cell
 		kap_tq = -52.0967985869
 
 		// h-current
-		h_erev = -37.0 // global
-		h_gbar = 0.000140956438043
-		h_gbar_tuft = 0.00565 // mho/cm^2 (based on Harnett 2015 J Neurosci)
+		h_scale1 = 1.0
+		h_scale2 = 1.0
 		nexusdist = 300.0 // nexus distance from soma
+		h_erev = -37.0 // global
+		h_gbar = 0.000140956438043 * h_scale1
+		h_gbar_tuft = 0.00565 * h_scale2 // mho/cm^2 (based on Harnett 2015 J Neurosci)
 		h_gbar_tuftm = h_gbar_tuft / h_gbar
 		h_lambda = nexusdist / log(h_gbar_tuftm)
 		calginc = 10.0 // middle apical dend gets more iL
@@ -276,29 +282,30 @@ begintemplate CS_Cell
 
 		/////// parameters ///////
 		Vrest = -88.5366550238 // resting potential
-		Vinit = -87.35 // initial potential (actual Vrest)
+		Vinit = -87.0 // initial potential (actual Vrest)
 		// celsius = 34.0 // for in vitro opt
 
 		// geometry properties
         // roughly 3/4 of CP cell size in soma, apical; roughly same basal length
-		L_scale = 0.75
-		diam_scale = 0.75
-		somaL = 48.4123467666 * L_scale
-		somaDiam = 28.2149102762
-		axonL = 594.292937602 * L_scale
-		axonDiam =  1.40966286462
+		L_scale = 0.65 // scale length for dendrites
+		diam_scale = 0.45 // scale diameter for all compartments
+		somaL = 28.2149102762
+		somaDiam = 48.4123467666 * diam_scale
+		axonL = 594.292937602
+		axonDiam =  1.40966286462 * diam_scale
 		apicL = 785.713908009 * L_scale // =261.904636003*3 simplify 3 compartments into single
 		apicDiam = 1.5831889597 * diam_scale
-		bdendL = 299.810775175
+		bdendL = 299.810775175 * L_scale
 		bdendDiam = 2.2799248874 * diam_scale
 
 		// passive properties
-        RM_scale = 1.0 // scale soma and axon
+        RM_scale = 1.1 // scale membrane resistance
+		Cap_scale = 1.1 // scale membrance capacitance
 		rall = 114.510490019 // Ra all
-		axonCap =  1.01280903702 // capacitance
-		somaCap =  1.78829677463
-		apicCap = 1.03418636866
-		bdendCap = 1.89771901209
+		axonCap =  1.01280903702 * Cap_scale // capacitance
+		somaCap =  1.78829677463 * Cap_scale
+		apicCap = 1.03418636866 * Cap_scale
+		bdendCap = 1.89771901209 * Cap_scale
 		axonRM = 3945.2107187 * RM_scale // Rm
 		somaRM = 18501.7540916 * RM_scale
 		apicRM = 10751.193413 * RM_scale
@@ -326,17 +333,17 @@ begintemplate CS_Cell
 		kap_tq = -52.0967985869
 
 		// h-current
-        h_scale1 = 0.27
-		h_scale2 = 0.0075
+        h_scale1 = 0.21 // 0.27
+		h_scale2 = 0.006 // 0.0075
+		nexusdist = 250.0 // nexus distance from soma
 		h_erev = -37.0 // global
 		h_gbar = 0.000140956438043 * h_scale1
 		h_gbar_tuft = 0.00565 * h_scale2 // mho/cm^2 (based on Harnett 2015 J Neurosci)
-		nexusdist = 240.0 // nexus distance from soma 4/5 of CP cell
 		h_gbar_tuftm = h_gbar_tuft / h_gbar
 		h_lambda = nexusdist / log(h_gbar_tuftm)
 		calginc = 10.0 // middle apical dend gets more iL
-		midapic_d1 = 240.0 // start of calcium rich region
-		midapic_d2 = 320.0 // end of calcium rich region
+		midapic_d1 = 250.0 // 240 // start of calcium rich region
+		midapic_d2 = 333.0 // 320 // end of calcium rich region
 
 		// other ion channel parameters
 		cal_gcalbar = 4.41583533572e-06

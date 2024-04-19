@@ -6,6 +6,7 @@ import argparse
 
 import numpy as np
 import pandas as pd
+from functools import partial
 from bmtool.util import util
 from bmtk.utils.reports.spike_trains import PoissonSpikeGenerator
 from connectors import num_prop
@@ -73,37 +74,46 @@ def df2node_id(df):
     return df.index.tolist()
 
 
-def get_pop(node_df, pop_name):
-    """Get nodes with given population name from the nodes dataframe"""
-    return node_df.loc[node_df['pop_name'] == pop_name]
+def get_pop(node_df, value, key='pop_name'):
+    """Get dataframe of nodes matching a specific property from nodes dataframe
+    key, value: key-value pair of a property. Default property: population name 
+    """
+    return node_df.loc[node_df[key] == value]
 
 
-def get_pop_id(node_df, pop_name):
-    """Get node ids with given population name from the nodes dataframe"""
-    return df2node_id(get_pop(node_df, pop_name))
+def get_pop_id(node_df, value, key='pop_name'):
+    """Get ids of nodes matching a specific property from nodes dataframe"""
+    return df2node_id(get_pop(node_df, value, key=key))
 
 
-def get_populations(node_df, pop_names, only_id=False):
-    """Get node dataframes of multiple populations from the nodes dataframe"""
-    func = get_pop_id if only_id else get_pop
-    return {p: func(node_df, p) for p in pop_names}
-
-
-def get_assembly_ids(pop_nodes, assy_idx=[slice(None)]):
-    pop_assy = []
-    for nodes in pop_nodes:
-        ids = np.array(nodes)
-        pop_assy.append([ids[idx] for idx in assy_idx])
-    return pop_assy
+def get_populations(node_df, values, key='pop_name', only_id=False):
+    """Get a dictionary of {value: nodes} matching different values of
+    a property from nodes dataframe. Default property: population name
+    only_id: whether return only node ids or a dataframe of nodes
+    """
+    func = partial(get_pop_id, key=key) if only_id else partial(get_pop, key=key)
+    return {v: func(node_df, v) for v in values}
 
 
 def assign_assembly(N, n_assemblies, rng=default_rng):
+    """Assign N units to n_assemblies.
+    Return a list of unit indices in each assembly.
+    """
     n_per_assemb = num_prop(np.ones(n_assemblies), N)
     split_idx = np.cumsum(n_per_assemb)[:-1]  # indices at which to split
     assy_idx = rng.permutation(N)  # random shuffle for assemblies
     assy_idx = np.split(assy_idx, split_idx)  # split into assemblies
     assy_idx = [np.sort(idx) for idx in assy_idx]
     return assy_idx
+
+
+def get_assembly_ids(*pop_nodes, assy_idx=[slice(None)]):
+    """Cast node ids into a list of assemblies given indices in each assembly."""
+    pop_assy = []
+    for nodes in pop_nodes:
+        ids = np.array(nodes)
+        pop_assy.append([ids[idx] for idx in assy_idx])
+    return pop_assy
 
 
 def get_assembly(Thal_nodes, PN_nodes, n_assemblies, rng=default_rng):
@@ -113,30 +123,69 @@ def get_assembly(Thal_nodes, PN_nodes, n_assemblies, rng=default_rng):
         raise ValueError("Number of thalamus cells don't match number of PNs")
 
     assy_idx = assign_assembly(num_PN, n_assemblies, rng=rng)
-    Thal_assy, PN_assy = get_assembly_ids((Thal_nodes, PN_nodes), assy_idx)
+    Thal_assy, PN_assy = get_assembly_ids(Thal_nodes, PN_nodes, assy_idx=assy_idx)
     return Thal_assy, PN_assy
 
 
-CORTEX_SIZE = np.array([[-300., 300.], [-300., 300.]]) # um. x, y bounds
+def get_divided_assembly(Thal_nodes, PN_nodes_df, div_assembly, rng=default_rng):
+    """Divide PNs assemblies into smaller assemblies.
+    div_assembly: If a single number is specified, it is the number of smaller
+        assemblies that each of the original assembly will be divided into.
+        If specified as a list, it is the sequence of original assembly ids
+        from which the smaller assemblies will be taken from.
+        E.g., div_assembly=[3] divides each assembly into 3 smaller ones.
+        div_assembly=[1, 0, 2, 2, 1] divides assembly 0 into one, 1 into two and
+        2 into two smaller assemblies, ordered corresponding to the sequence.
+    """
+    if len(PN_nodes_df) != len(Thal_nodes):
+        raise ValueError("Number of thalamus cells don't match number of PNs")
+    assy_ids = PN_nodes_df['assembly_id'].unique()
+    assy_ids = np.sort(assy_ids[assy_ids >= 0])
+    div_assembly = np.array(div_assembly).ravel()
+    if div_assembly.size == 1:
+        # divide each original assembly into equal number of smaller ones 
+        # small assemblies order is sequentially switching among the orginal ones
+        div_assembly = np.tile(assy_ids, div_assembly[0])
+    if not set(div_assembly).issubset(assy_ids):
+        s = ', '.join(map(str, set(div_assembly) - set(assy_ids)))
+        raise ValueError("The assembly id (%s) in `div_assembly` not found "
+                         "in the network." % s)
+    n_div = {i: np.count_nonzero(div_assembly == i) for i in assy_ids}
+    PN_Assy = get_populations(PN_nodes_df, assy_ids, key='assembly_id', only_id=True)
+    PN_Assy_div = {i: get_assembly_ids(PN_Assy[i], assy_idx=assign_assembly(
+        len(PN_Assy[i]), n_div[i], rng=rng))[0] for i in assy_ids}
+    PN_assy = [PN_Assy_div[i].pop(0) for i in div_assembly]
+    assy_idx = [PN_nodes_df.index.get_indexer(ids) for ids in PN_assy]
+    Thal_assy, = get_assembly_ids(Thal_nodes, assy_idx=assy_idx)
+    return Thal_assy, PN_assy, div_assembly
+
+
+GRID_SIZE = np.array([[-300., 300.], [-300., 300.]]) # um. x, y bounds
 GRID_ID = np.array([
     [6, 2, 8],
     [0, 4, 5],
     [3, 7, 1]
 ])
 def get_grid_assembly(Thal_nodes, PN_nodes_df,
-                      grid_id=GRID_ID, cortex_size=CORTEX_SIZE):
+                      grid_id=GRID_ID, grid_size=GRID_SIZE):
+    """Divide PNs into assemblies based on lateral location (x, y).
+    The layer is divided into a 2D grid. Cells in each grid form an assembly.
+    grid_id: assembly ids arranged in 2d-array corresponding to grid locations.
+        The assemblies are ordered by the ids.
+    grid_size: the bounds of the grid area in (x, y) coordinates (um).
+    """
     if len(PN_nodes_df) != len(Thal_nodes):
         raise ValueError("Number of thalamus cells don't match number of PNs")
     bins = []
     for i in range(2):
-        bins.append(np.linspace(*cortex_size[i], grid_id.shape[i] + 1)[1:])
+        bins.append(np.linspace(*grid_size[i], grid_id.shape[i] + 1)[1:])
         bins[i][-1] += 1.
     PN_nodes_df['assy_id'] = grid_id[np.digitize(PN_nodes_df['pos_x'], bins[0]),
                                      np.digitize(PN_nodes_df['pos_y'], bins[1])]
 
     assy_idx = [PN_nodes_df['assy_id'] == i for i in np.sort(grid_id, axis=None)]
-    Thal_assy, PN_assy = get_assembly_ids((Thal_nodes, PN_nodes_df.index), assy_idx)
-    return Thal_assy, PN_assy
+    Thal_assy, PN_assy = get_assembly_ids(Thal_nodes, PN_nodes_df.index, assy_idx=assy_idx)
+    return Thal_assy, PN_assy, grid_id
 
 
 def input_pairs_to_file(file, source, target):
@@ -347,10 +396,10 @@ def get_join_split(size_assemblies, n_steps=20,
     if seed is not None:
         rng = get_rng(seed=NET_SEED, seed_offset=seed)  # shuffle ids in each assembly
     for n in size_assemblies:
-        assy_ids = np.arange(n) if seed is None else rng.permutation(n)  
+        assy_idx = np.arange(n) if seed is None else rng.permutation(n)  
         n_per_step = num_prop(ratio, n * high_portion)  # split into steps
         split_idx = np.cumsum(n_per_step)  # indices at which to split
-        split_ids.append(np.split(assy_ids, split_idx)[:-1])
+        split_ids.append(np.split(assy_idx, split_idx)[:-1])
     if seed is not None:
         split_ids = [[np.sort(i) for i in idx] for idx in split_ids]
     return split_ids
@@ -644,8 +693,8 @@ def write_seeds_file(psg_seed=PSG_SEED, net_seed=NET_SEED, stimulus=STIMULUS,
             json.dump(seeds, f, indent=2)
 
 
-def build_input(t_stop=T_STOP, t_start=T_START,
-                n_assemblies=N_ASSEMBLIES, grid_assembly=False,
+def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
+                div_assembly=None, grid_assembly=False,
                 burst_fr=None, net_seed=NET_SEED, psg_seed=PSG_SEED,
                 input_path=INPUT_PATH, stimulus=STIMULUS, stim_files={}):
     if not os.path.isdir(input_path):
@@ -670,10 +719,20 @@ def build_input(t_stop=T_STOP, t_start=T_START,
     if n_assemblies > 0:
         Thal_nodes = df2node_id(nodes['thalamus'])
         PN_nodes = Cortex_nodes['CP'] + Cortex_nodes['CS']
-        if grid_assembly:
-            Thal_assy, PN_assy = get_grid_assembly(
+        if div_assembly is not None:
+            rng = get_rng(seed=net_seed, seed_offset=100)
+            Thal_assy, PN_assy, div_assembly = get_divided_assembly(
+                Thal_nodes, nodes['cortex'].loc[PN_nodes], div_assembly, rng=rng)
+            n_assemblies = len(Thal_assy)
+            div_assembly_df = pd.DataFrame(enumerate(div_assembly), columns=[
+                'division_id', 'assembly_id']).set_index('division_id')
+            div_assembly_df.to_csv(os.path.join(input_path, "Division_ids.csv"))
+        elif grid_assembly:
+            Thal_assy, PN_assy, grid_id = get_grid_assembly(
                 Thal_nodes, nodes['cortex'].loc[PN_nodes])
             n_assemblies = len(Thal_assy)
+            gird_id_file = os.path.join(input_path, "Grid_ids.csv")
+            np.savetxt(gird_id_file, grid_id, delimiter=",")
         else:
             rng = get_rng(seed=net_seed, seed_offset=100)
             Thal_assy, PN_assy = get_assembly(
@@ -721,7 +780,7 @@ def build_input(t_stop=T_STOP, t_start=T_START,
                 std_stim_params[stim] = dict(firing_rate=Thal_burst_fr,
                     on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
                 if stim == 'short':
-                    std_stim_params[stim]['n_rounds'] = 2
+                    std_stim_params[stim]['n_rounds'] = 1
             fr_params = get_std_param(std_stim_params, stim)
             psg = get_psg_from_fr(PSG(), Thal_assy, fr_params)
             psg.to_sonata(os.path.join(input_path, "thalamus_" + stim + ".h5"))
@@ -822,7 +881,13 @@ if __name__ == '__main__':
                         help="Simulation start period")
     parser.add_argument('-n', '--n_assemblies', type=int,
                         nargs='?', default=N_ASSEMBLIES, metavar='# Assemblies',
-                        help="Number of assemblies")
+                        help="Number of assemblies to randomly assign.")
+    parser.add_argument('-div', '--div_assembly', type=int,
+                        nargs="*", default=None, metavar='Divide assemblies',
+                        help="Number of smaller assemblies that each of the "
+                        "original assembly will be randomly divided into. "
+                        "Or a sequence of original assembly ids from which "
+                        "the smaller assemblies will be taken from.")
     parser.add_argument('-grid', '--grid_assembly', action='store_true',
                         help="Use spatial grids to assign assemblies")
     parser.add_argument('-fr', '--burst_fr', type=float,
@@ -842,9 +907,9 @@ if __name__ == '__main__':
                         help="List of stimulus types. List can be empty.")
     parser.add_argument('-sf', '--stim_files', type=str,
                         nargs="*", default=[], metavar='Stimulus Files',
-                        help="List of stimulus file names/paths."
-                        "Inferred stimulus types are added to the stimulus list."
-                        "e.g., -sf ramp1 ramp2 ./input/join.json")
+                        help="List of stimulus file names/paths. "
+                        "Inferred stimulus types are added to the stimulus list. "
+                        "E.g., -sf ramp1 ramp2 ./input/join.json")
     args = parser.parse_args()
 
     NET_SEED = args.net_seed
@@ -852,7 +917,7 @@ if __name__ == '__main__':
     stim_files = {os.path.split(s)[1].removesuffix('.json'): s for s in args.stim_files}
     stimulus.extend(s for s in stim_files if s not in stimulus)
 
-    build_input(t_stop=args.t_stop, t_start=args.t_start,
-                n_assemblies=args.n_assemblies, grid_assembly = args.grid_assembly,
+    build_input(t_stop=args.t_stop, t_start=args.t_start, n_assemblies=args.n_assemblies,
+                div_assembly=args.div_assembly, grid_assembly = args.grid_assembly, 
                 burst_fr=args.burst_fr, net_seed=args.net_seed, psg_seed=args.psg_seed,
                 input_path=args.input_path, stimulus=stimulus, stim_files=stim_files)
