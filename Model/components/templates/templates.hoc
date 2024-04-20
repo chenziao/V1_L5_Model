@@ -299,8 +299,8 @@ begintemplate CS_Cell
 		bdendDiam = 2.2799248874 * diam_scale
 
 		// passive properties
-        RM_scale = 1.1 // scale membrane resistance
-		Cap_scale = 1.1 // scale membrance capacitance
+        RM_scale = 1.2 // scale membrane resistance
+		Cap_scale = 1.0 // scale membrance capacitance
 		rall = 114.510490019 // Ra all
 		axonCap =  1.01280903702 * Cap_scale // capacitance
 		somaCap =  1.78829677463 * Cap_scale
@@ -334,7 +334,7 @@ begintemplate CS_Cell
 
 		// h-current
         h_scale1 = 0.21 // 0.27
-		h_scale2 = 0.006 // 0.0075
+		h_scale2 = 0.21 // 0.0075
 		nexusdist = 250.0 // nexus distance from soma
 		h_erev = -37.0 // global
 		h_gbar = 0.000140956438043 * h_scale1
