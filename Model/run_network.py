@@ -38,9 +38,9 @@ def run(config_file=CONFIG, use_coreneuron=USE_CORENEURON):
     # to the random number generator, so that each cell gets a different
     # random seed for the point-conductance noise
     cells = graph.get_local_cells()
-    for cell in cells:
-        cells[cell].hobj.insert_mechs(cells[cell].gid)
-    '''
+    for gid, cell in cells.items():
+        cell.hobj.insert_mechs(gid)
+    # '''
 
     # clear ecp temporary directory to avoid errors
     pc = h.ParallelContext()

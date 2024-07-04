@@ -108,6 +108,27 @@ def get_trial_info(TRIAL_PATH):
     return stim_type, paths, stim_info, config_hp
 
 
+def get_trial_label(trial_name):
+    """Convert file name format into labels for demonstration"""
+    single = isinstance(trial_name, str)
+    if single:
+        trial_name = [trial_name]
+    trial_label = {}
+    for tr in trial_name:
+        ntr = tr.replace('rand', 'random').replace('div', 'strong')
+        if '_a' in tr:
+            ntr = ntr.split('_')
+            ntr = '_'.join(ntr[:-1]).replace('_a', '_' + ntr[-1])
+        if '_down' in tr:
+            ntr = ntr.replace('_down', '').replace('ramp', 'down')
+        if '_quit' in tr:
+            ntr = ntr.replace('_quit', '').replace('join', 'quit')
+        trial_label[tr] = ntr
+    if single:
+        trial_label = trial_label[trial_name[0]]
+    return trial_label
+
+
 def map_json_inplace(val, func, obj=None, key=None):
     if isinstance(val, dict):
         for k, v in val.items():

@@ -5,18 +5,44 @@ import matplotlib.pyplot as plt
 import sys
 import os
 
-import pywt
 from fooof import FOOOF
 from fooof.sim.gen import gen_aperiodic, gen_model
 from matplotlib.patches import FancyArrowPatch, ArrowStyle
 from build_input import get_populations
 from analysis import utils, process
 
+import matplotlib as mpl
+
+mpl.rcParams['axes.spines.right'] = False
+mpl.rcParams['axes.spines.top'] = False
+
 MODEL_PATH = os.path.join('..', 'Model')
+FIG_PATH = os.path.join('.', 'figures')
 CONFIG = 'config.json'
 pop_color_base = {'CP': 'blue', 'CS': 'green', 'FSI': 'red', 'LTS': 'purple'}
 pop_color = {p: 'tab:' + clr for p, clr in pop_color_base.items()}
 pop_names = list(pop_color.keys())
+
+
+def savefig(fig=plt, name=None, dir=FIG_PATH, dpi=300., bbox_inches='tight',
+            axis_off=False):
+    if name is None:
+        flag = False
+        for i in range(10000):
+            fname = os.path.join(dir, str(i))
+            if not (os.path.isfile(fname + '.png') or os.path.isfile(fname + '.pdf')):
+                flag = True
+                break
+        if not flag:
+            raise FileExistsError()
+    else:
+        fname = os.path.join(dir, name)
+    if axis_off:
+        for ax in fig.axes:
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+    fig.savefig(fname + '.png', transparent=True, format='png', dpi=dpi, bbox_inches=bbox_inches)
+    fig.savefig(fname + '.pdf', transparent=True, format='pdf', bbox_inches=bbox_inches)
 
 
 def raster(pop_spike, pop_color, id_column='node_ids', s=0.01, ax=None):
@@ -32,7 +58,7 @@ def raster(pop_spike, pop_color, id_column='node_ids', s=0.01, ax=None):
     ax.set_xlim(left=0.)
     ax.set_ylim([np.min(ymin) - 1, np.max(ymax) + 1])
     ax.set_title('Spike Raster Plot')
-    ax.legend(loc='upper right', framealpha=0.9, markerfirst=False)
+    ax.legend(loc='upper right', framealpha=0.2, markerfirst=False)
     ax.set_xlabel('Time (ms)')
     ax.set_ylabel('Cell ID')
     return ax
@@ -61,7 +87,7 @@ def firing_rate_histogram(pop_fr, pop_color, bins=30, min_fr=None,
         ax.set_xscale('log')
         plt.draw()
         xt = ax.get_xticks()
-        xtl = [x.get_text() for x in ax.get_xticklabels()]
+        xtl = [f'{x:g}' for x in xt]
         xt = np.append(xt, min_fr)
         xtl.append('0')
         ax.set_xticks(xt)
@@ -75,6 +101,7 @@ def firing_rate_histogram(pop_fr, pop_color, bins=30, min_fr=None,
 
 
 def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
+    """Cross-correlation between x and y with lags of x relative to y"""
     x = np.asarray(x)
     y = np.asarray(y)
     x = (x - x.mean()) / x.std()
@@ -96,29 +123,33 @@ def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
     return xcorr, xcorr_lags
 
 
-def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5., var_label='LFP (mV)',
-                         fontsize=10, xytext=(.3, 0), ax=None):
+def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5., pad=1.5, var_label='LFP (mV)',
+                         color=None, demean=False, fontsize=10, xytext=(.3, 0), ax=None):
     t_cycle, n_cycle = stim_cycle['t_cycle'], stim_cycle['n_cycle']
     t_start, on_time = stim_cycle['t_start'], stim_cycle['on_time']
     i_start, i_cycle = stim_cycle['i_start'], stim_cycle['i_cycle']
     dv = dv_n_sigma * np.std(x[i_start:])
+    demean = -np.mean(x[i_start:i_start + n_cycle * i_cycle]) if demean else 0.
+    x += demean
     r_edge = 1000 * t_cycle
+    pad = np.asarray(pad).ravel()
     
     if ax is None:
         _, ax = plt.subplots(1, 1)
-    ax.plot(t[:i_start], x[:i_start] + n_cycle * dv, 'k')
-    ax.annotate('pre stimulus', (max(r_edge, x[i_start]), n_cycle * dv), color='k',
-                fontsize=fontsize, xytext=xytext, textcoords='offset fontsize')
+    pclr = 'k' if color is None else color
+    ax.plot(t[:i_start], x[:i_start] + n_cycle * dv, pclr)
+    ax.annotate('pre stimulus', (max(r_edge, t[i_start]), n_cycle * dv + demean),
+                color=pclr, fontsize=fontsize, xytext=xytext, textcoords='offset fontsize')
     for i in range(n_cycle):
         m = i_start + i * i_cycle
-        offset = (n_cycle - i - 1) * dv
+        offset = (n_cycle - i - 1) * dv + demean
         xx = x[m:m + i_cycle] + offset
-        h = ax.plot(t[:len(xx)], xx)
-        ax.annotate(f'stimulus {i + 1:d}', (r_edge, offset), color=h[0].get_color(),
+        h = ax.plot(t[:len(xx)], xx, color=color)
+        ax.annotate(f'cycle {i + 1:d}', (r_edge, offset), color=h[0].get_color(),
                     fontsize=fontsize, xytext=xytext, textcoords='offset fontsize')
     ax.axvline(on_time * 1000, color='gray', label='stimulus off')
     ax.set_xlim(0, max(1.15 * r_edge, 1000 * t_start))
-    ax.set_ylim(np.array((-1.5, n_cycle + 1.5)) * dv)
+    ax.set_ylim(np.array((-pad[0], n_cycle + pad[-1])) * dv)
     ax.set_xlabel('Time (ms)')
     ax.set_ylabel(var_label)
 
@@ -159,7 +190,6 @@ def fit_fooof(f, pxx, aperiodic_mode='fixed', dB_threshold=3., max_n_peaks=10,
         plt.xlim(np.log10(plt_range) if plt_log else plt_range)
         if figsize:
             plt.gcf().set_size_inches(figsize)
-        plt.show()
     return results, fm
 
 
@@ -194,6 +224,36 @@ def plot_channel_psd(psd, channel_id=None, plt_range=(0, 100.),
     return results, fig1, fig2
 
 
+def plot_fooof(f, pxx, fooof_result, plt_log=False, plt_range=None, plt_db=True, ax=None):
+    full_fit, _, ap_fit = gen_model(f[1:], fooof_result.aperiodic_params,
+                                    fooof_result.gaussian_params, return_components=True)
+    full_fit = np.insert(10 ** full_fit, 0, pxx[0])
+    ap_fit = np.insert(10 ** ap_fit, 0, pxx[0])
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    else:
+        fig = ax.get_figure()
+    plt_range = np.array(f[-1]) if plt_range is None else np.array(plt_range)
+    if plt_range.size == 1:
+        plt_range = [f[1] if plt_log else 0., plt_range.item()]
+    f_idx = (f >= plt_range[0]) & (f <= plt_range[1])
+    f, pxx = f[f_idx], pxx[f_idx]
+    full_fit, ap_fit = full_fit[f_idx], ap_fit[f_idx]
+    if plt_db:
+        pxx, full_fit, ap_fit = [10 * np.log10(x) for x in [pxx, full_fit, ap_fit]]
+    ax.plot(f, pxx, 'k', label='Original')
+    ax.plot(f, full_fit, 'r', label='Full model fit')
+    ax.plot(f, ap_fit, 'b--', label='Aperiodic fit')
+    if plt_log:
+        ax.set_xscale('log')
+    ax.set_xlim(plt_range)
+    ax.legend(loc='upper right', frameon=False)
+    ax.set_xlabel('Frequency (Hz)')
+    ax.set_ylabel('PSD ' + ('dB' if plt_db else r'mV$^2$') + '/Hz')
+    return fig, ax
+
+
 def psd_residual(f, pxx, fooof_result, plot=False, plt_log=False, plt_range=None, ax=None):
     full_fit, _, ap_fit = gen_model(f[1:], fooof_result.aperiodic_params,
                                     fooof_result.gaussian_params, return_components=True)
@@ -220,44 +280,6 @@ def psd_residual(f, pxx, fooof_result, plot=False, plt_log=False, plt_range=None
     return res_psd, res_fit
 
 
-# cone of influence in frequency for cmorxx-1.0 wavelet
-f0 = 2 * np.pi
-CMOR_COI = 2 ** -0.5
-CMOR_FLAMBDA = 4 * np.pi / (f0 + (2 + f0 ** 2) ** 0.5)
-COI_FREQ = 1 / (CMOR_COI * CMOR_FLAMBDA)
-
-def cwt_spectrogram(x, fs, nNotes=6, nOctaves=np.inf, freq_range=(0, np.inf),
-                    bandwidth=1.0, axis=-1, detrend=False, normalize=False):
-    """Calculate spectrogram using continuous wavelet transform"""
-    x = np.asarray(x)
-    N = x.shape[axis]
-    times = np.arange(N) / fs
-    # detrend and normalize
-    if detrend:
-        x = ss.detrend(x, axis=axis, type='linear')
-    if normalize:
-        x = x / x.std()
-    # Define some parameters of our wavelet analysis. 
-    # range of scales (in time) that makes sense
-    # min = 2 (Nyquist frequency)
-    # max = np.floor(N/2)
-    nOctaves = min(nOctaves, np.log2(2 * np.floor(N / 2)))
-    scales = 2 ** np.arange(1, nOctaves, 1 / nNotes)
-    # cwt and the frequencies used. 
-    # Use the complex morelet with bw=2*bandwidth^2 and center frequency of 1.0
-    # bandwidth is sigma of the gaussian envelope
-    wavelet = 'cmor' + str(2 * bandwidth ** 2) + '-1.0'
-    frequencies = pywt.scale2frequency(wavelet, scales) * fs
-    scales = scales[(frequencies >= freq_range[0]) & (frequencies <= freq_range[1])]
-    coef, frequencies = pywt.cwt(x, scales[::-1], wavelet=wavelet, sampling_period=1 / fs, axis=axis)
-    power = np.real(coef * np.conj(coef)) # equivalent to power = np.abs(coef)**2
-    # cone of influence in terms of wavelength
-    coi = N / 2 - np.abs(np.arange(N) - (N - 1) / 2)
-    # cone of influence in terms of frequency
-    coif = COI_FREQ * fs / coi
-    return power, times, frequencies, coif
-
-
 def cwt_spectrogram_xarray(x, fs, time=None, axis=-1, downsample_fs=None,
                            channel_coords=None, **cwt_kwargs):
     """Calculate spectrogram using continuous wavelet transform and return an xarray.Dataset
@@ -280,7 +302,7 @@ def cwt_spectrogram_xarray(x, fs, time=None, axis=-1, downsample_fs=None,
         downsample_fs = num / T * fs
         downsampled, t = ss.resample(x, num=num, t=t, axis=axis)
     downsampled = np.moveaxis(downsampled, axis, -1)
-    sxx, _, f, coif = cwt_spectrogram(downsampled, downsample_fs, **cwt_kwargs)
+    sxx, _, f, coif = process.cwt_spectrogram(downsampled, downsample_fs, **cwt_kwargs)
     sxx = np.moveaxis(sxx, 0, -2) # shape (... , freq, time)
     if channel_coords is None:
         channel_coords = {f'dim_{i:d}': range(d) for i, d in enumerate(sxx.shape[:-2])}
@@ -302,7 +324,7 @@ def spectrogram_xarray(x, fs, tseg, axis=-1, tres=np.inf, channel_coords=None):
 
 
 def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
-                     plt_range=None, clr_freq_range=None, ax=None):
+                     plt_range=None, clr_freq_range=None, pad=0.03, ax=None):
     """Plot spectrogram. Determine color limits using value in frequency band clr_freq_range"""
     sxx = sxx_xarray.PSD.values.copy()
     t = sxx_xarray.time.values.copy()
@@ -312,13 +334,16 @@ def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
     if log_power:
         with np.errstate(divide='ignore'):
             sxx = np.log10(sxx)
-        cbar_label += ' log(power)'
+        cbar_label += ' dB' if log_power == 'dB' else ' log(power)'
 
     if remove_aperiodic is not None:
         f1_idx = 0 if f[0] else 1
         ap_fit = gen_aperiodic(f[f1_idx:], remove_aperiodic.aperiodic_params)
         sxx[f1_idx:, :] -= (ap_fit if log_power else 10 ** ap_fit)[:, None]
         sxx[:f1_idx, :] = 0.
+
+    if log_power == 'dB':
+        sxx *= 10
 
     if ax is None:
         _, ax = plt.subplots(1, 1)
@@ -340,7 +365,7 @@ def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
         ax.fill_between(t, coif, step='mid', alpha=0.2)
     ax.set_xlim(t[0], t[-1])
     ax.set_ylim(f[0], f[-1])
-    plt.colorbar(mappable=pcm, ax=ax, label=cbar_label)
+    plt.colorbar(mappable=pcm, ax=ax, label=cbar_label, pad=pad)
     ax.set_xlabel('Time (sec)')
     ax.set_ylabel('Frequency (Hz)')
     return sxx
@@ -352,7 +377,7 @@ ARROWPROPS = dict(shrinkA=0, shrinkB=0, mutation_scale=10)
 def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
                         marker_times=[], marker_names=[], marker_props={},
                         traj_props={}, diag_props={}, arrow_props={},
-                        arrow_loc=(0.45, 0.55), figsize=(3, 2.5)):
+                        arrow_loc=(0.45, 0.55), singlefigsize=(3, 2.5)):
     time = next(data.values()).time.values if time is None else np.asarray(time)
     xlabels = list(data.keys()) if xlabels is None else list(xlabels)
     ylabels = xlabels if ylabels is None else list(ylabels)
@@ -385,8 +410,8 @@ def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
     arrow_locs = {k: np.interp(arrow_times, time, v) for k, v in data.items()}
 
     nrow, ncol = len(ylabels), len(xlabels)
-    _, axs = plt.subplots(nrow, ncol, squeeze=False,
-                        figsize=(ncol * figsize[0], nrow * figsize[1]))
+    fig, axs = plt.subplots(nrow, ncol, squeeze=False,
+                            figsize=(ncol * figsize[0], nrow * figsize[1]))
     xlim, ylim = np.empty((ncol, 2)), np.empty((nrow, 2))
     xlim[:, 0], xlim[:, 1] = -np.inf, np.inf
     ylim[:, 0], ylim[:, 1] = -np.inf, np.inf
@@ -425,7 +450,7 @@ def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
                 axs[i, j].set_xlim(xlim[j])
     axs[0, 0].legend(loc='upper right', framealpha=0.2)
     plt.tight_layout()
-    return axs
+    return fig, axs
 
 
 def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):

@@ -10,7 +10,9 @@ x86_64/
 *.pkl
 *.npy
 *.zip
+*.nc
 *backup*
+*temp*
 /temp/
 /Model/network*/
 /Model/results/
