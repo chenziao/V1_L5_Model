@@ -377,7 +377,7 @@ ARROWPROPS = dict(shrinkA=0, shrinkB=0, mutation_scale=10)
 def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
                         marker_times=[], marker_names=[], marker_props={},
                         traj_props={}, diag_props={}, arrow_props={},
-                        arrow_loc=(0.45, 0.55), singlefigsize=(3, 2.5)):
+                        arrow_loc=(0.45, 0.55), figsize=(3, 2.5)):
     time = next(data.values()).time.values if time is None else np.asarray(time)
     xlabels = list(data.keys()) if xlabels is None else list(xlabels)
     ylabels = xlabels if ylabels is None else list(ylabels)

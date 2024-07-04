@@ -7,5 +7,16 @@
       "short",
       "long"
     ]
+  },
+  {
+    "net_seed": 123,
+    "psg_seed": 42,
+    "stimulus": [
+      "baseline",
+      "short",
+      "long",
+      "shell",
+      "thalamus_ramp_a0_t1.0_LONG"
+    ]
   }
 ]

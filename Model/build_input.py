@@ -19,7 +19,7 @@ STIMULUS = ['baseline', 'short', 'long', 'shell']
 
 N_ASSEMBLIES = 9  # number of assemblies
 NET_SEED = 123  # random seed for network r.v.'s (e.g. assemblies, firing rate)
-PSG_SEED = 1  # poisson spike generator random seed for different trials
+PSG_SEED = 42  # poisson spike generator random seed for different trials
 # Warning: Using PoissonSpikeGenerator(seed=0) may not set random seed correctly.
 
 T_STOP = 28.  # sec. Simulation time
@@ -754,7 +754,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
     FSI_baseline_fr = None  # 200 Hz. If not None, use modified fr for FSI
-    LTS_baseline_fr = 60.0  # 60 Hz. If not None, use modified fr for LTS
+    LTS_baseline_fr = None  # 60 Hz. If not None, use modified fr for LTS
     ITN_baseline_burst = True  # whether use burst input like short/long or constant
     Thal_burst_fr = 50.0 if burst_fr is None else burst_fr  # Hz. for thalamus burst input
     Thal_const_fr = 10.0 if burst_fr is None else burst_fr  # Hz. for thalamus constant input
